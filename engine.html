@@ -155,7 +155,7 @@ function step(){
 }
 //LOGIC_END
 
-/* ================= SUARA (sintesis WebAudio, tanpa file) ================= */
+/* ================= SUARA (sintesis WebAudio + SFX arah + BGM browser) ================= */
 const AC=new (window.AudioContext||window.webkitAudioContext)();
 // "keep-alive" audio: osilator sunyi (gain ~0) supaya AudioContext tidak auto-suspend saat idle
 try{const _k=AC.createOscillator(),_g=AC.createGain();_g.gain.value=.00001;_k.connect(_g).connect(AC.destination);_k.start();}catch(e){}
@@ -171,8 +171,74 @@ const sfx={
   gift(n=1){const t=AC.currentTime;if(n>=50)[392,523,659].forEach((f,i)=>tone(f,t+i*.05,.9,'sawtooth',.06));[784,988,1175,1568,1976,2349,2637].slice(0,n>=50?7:5).forEach((f,i)=>{tone(f,t+i*.07,.35,'triangle',.22);tone(f*2,t+i*.07,.2,'sine',.08);});},
   over(){const t=AC.currentTime;[523,659,784,1047,784,1047,1319].forEach((f,i)=>tone(f,t+i*.14,.4,'square',.12));[523,659,784,1047].forEach(f=>tone(f,t+1.05,1.2,'triangle',.15));}
 };
+
+/* ===== Volume & URL audio (token overlay untuk OBS) ===== */
+const VOL_BGM=.10;                       // backsound /mp3
+const VOL_SFX=.25;                       // sound belok /sfx
+const TOKEN=QS.get('token')||'';
+const audioUrl=path=>TOKEN?`${path}${path.includes('?')?'&':'?'}token=${encodeURIComponent(TOKEN)}`:path;
+
+/* ===== SFX arah: hanya saat arah ular berubah ===== */
+const turnBuf={},turnGain=AC.createGain();
+turnGain.gain.value=VOL_SFX;
+turnGain.connect(AC.destination);
+let lastDirKey='right';
+for(const d of ['right','left','up','down']){
+  fetch(audioUrl(`/sfx/${d}.mp3`),{credentials:'same-origin'})
+    .then(r=>r.ok?r.arrayBuffer():Promise.reject())
+    .then(b=>AC.decodeAudioData(b))
+    .then(buf=>{turnBuf[d]=buf;})
+    .catch(()=>{});
+}
+function dirFromStep(from,to){
+  const dx=(to%W)-(from%W),dy=((to/W)|0)-((from/W)|0);
+  return dx>0?'right':dx<0?'left':dy<0?'up':dy>0?'down':'';
+}
+function turnSound(from,to){
+  const d=dirFromStep(from,to);
+  if(!d)return;
+  if(d!==lastDirKey&&turnBuf[d]){
+    const s=AC.createBufferSource();s.buffer=turnBuf[d];s.connect(turnGain);s.start();
+  }
+  lastDirKey=d;
+}
+
+/* ===== BGM dari /mp3: folder kosong = tidak ada backsound ===== */
+let bgm=null,bgmList=[],bgmIdx=0,bgmWanted=false,bgmStarted=false,bgmErrors=0,bgmStopped=false;
+function playBgmTrack(){
+  if(!bgm||!bgmList.length||bgmStopped)return;
+  if(bgmErrors>=bgmList.length){bgmStopped=true;return;}
+  const name=bgmList[bgmIdx%bgmList.length];
+  bgmIdx=(bgmIdx+1)%bgmList.length;
+  bgm.src=audioUrl('/mp3/'+encodeURIComponent(name));
+  bgm.play().catch(()=>{});
+}
+function startBgm(){
+  bgmWanted=true;
+  if(!bgm||bgmStarted)return;
+  bgmStarted=true;
+  playBgmTrack();
+}
+fetch(audioUrl('/api/songs'),{credentials:'same-origin'})
+  .then(r=>r.ok?r.json():null)
+  .then(data=>{
+    bgmList=Array.isArray(data&&data.songs)?data.songs:[];
+    if(!bgmList.length)return;                       // kosong: jangan buat pemutar sama sekali
+    bgm=new Audio();
+    bgm.volume=VOL_BGM;
+    bgm.preload='auto';
+    bgm.addEventListener('playing',()=>{bgmErrors=0;});
+    bgm.addEventListener('ended',playBgmTrack);
+    bgm.addEventListener('error',()=>{bgmErrors++;setTimeout(playBgmTrack,800);});
+    if(bgmWanted)startBgm();
+  })
+  .catch(()=>{});
+
 // suara default ON: coba nyalakan audio sejak awal, lalu kejar terus sampai berhasil
-const unlock=()=>{if(AC.state!=='running')AC.resume();};
+const unlock=()=>{
+  if(AC.state!=='running')AC.resume();
+  if(bgmWanted&&bgm&&!bgmStopped&&bgm.paused)bgm.play().catch(()=>{});
+};
 ['pointerdown','pointerup','click','keydown','keyup','touchstart','wheel'].forEach(ev=>addEventListener(ev,unlock,{passive:true}));
 addEventListener('visibilitychange',unlock);
 addEventListener('focus',unlock);
@@ -196,6 +262,7 @@ function countdown(){
     else tone(720,t,.12,'triangle',.2);
     if(i===seq.length-1){                      // GO! → game langsung jalan, overlay memudar
       started=true;
+      startBgm();
       setTimeout(()=>{cdBox.classList.add('off');setTimeout(()=>{cdBox.style.display='none';},500);},480);
     }
   },i*dur));
@@ -759,7 +826,7 @@ function freeCell(){
 }
 function launch(){const c=freeCell();if(c<0){queue=0;return;}flying.push({c,t:0});fly.add(c);}
 function gift(user,name,n,icon='🎁'){queue+=n;flash=1;sfx.gift(n);const t=$('toast');t.textContent=`${icon} ${user||'Seseorang'} kirim ${name||'gift'} → +${n} apel!`;t.style.background=n>=100?'linear-gradient(90deg,#ff9f1c,#ff2d95)':n>=30?'#a23bffcc':'#ff2d55cc';t.classList.add('on');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('on'),3200);}
-function newRound(){over=0;$('over').style.display='none';round++;reset();applyTheme(round);queue=0;flying=[];fly.clear();bulges=[];acc=0;spawnT=0;lastEatAt=performance.now();}
+function newRound(){over=0;$('over').style.display='none';round++;reset();applyTheme(round);queue=0;flying=[];fly.clear();bulges=[];acc=0;spawnT=0;lastEatAt=performance.now();lastDirKey='right';}
 function ui(){$('r').textContent=round;$('l').textContent=snake.length;$('e').textContent=eaten;}
 (function ws(){
   const qsPort=QS.get('ws');
@@ -816,7 +883,8 @@ function frame(now){
   bulgeMid=Math.max(4,snake.length*.5)*6;
   if(started&&!over){
     const sm=stepOf();acc+=dt*1000;
-    while(acc>=sm&&!over){acc-=sm;const r=step();
+    while(acc>=sm&&!over){acc-=sm;const oldHead=snake[0],r=step();
+      if(snake[0]!==oldHead)turnSound(oldHead,snake[0]);
       if(r===1){sfx.eat();burst(wp(snake[0]),8);jaw=1;bulges.push(0);lastEatAt=now;}
       if(r===2){over=now;akhirRonde('🏆 PAPAN PENUH!');}}
     // papan buntu (badan mengunci, tidak ada apel terjangkau) → tutup ronde juga

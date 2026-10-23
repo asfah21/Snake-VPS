@@ -91,6 +91,8 @@ def env_int(name, default, minimum=1):
 
 
 MP3_DIR = os.path.join(BASE_DIR, "mp3")
+SFX_DIR = os.path.join(BASE_DIR, "sfx")
+AUDIO_EXTENSIONS = (".mp3", ".ogg", ".wav", ".flac", ".m4a")
 DATA_DIR = os.environ.get("DATA_DIR") or os.path.join(BASE_DIR, "data")
 HTTP_PORT = env_int("PORT", 8001)
 WS_PORT = env_int("WS_PORT", 8766)
@@ -426,7 +428,7 @@ def _extract_token_from_headers(headers):
     return cookies.get(COOKIE_NAME, "")
 
 
-BGM_AKTIF = os.environ.get("BGM", "true").lower() in ("1", "true", "yes")
+BGM_AKTIF = os.environ.get("BGM", "false").lower() in ("1", "true", "yes")
 BGM_VOLUME = 0.28
 BGM_VOLUME_DUCK = 0.09
 BGM_DUCK_DETIK = 2.6
@@ -490,11 +492,10 @@ def siapkan_mixer():
 def daftar_musik_latar():
     if not os.path.isdir(MP3_DIR):
         return []
-    ekstensi = (".mp3", ".ogg", ".wav", ".flac", ".m4a")
     return [
         os.path.join(MP3_DIR, n)
         for n in sorted(os.listdir(MP3_DIR), key=str.lower)
-        if n.lower().endswith(ekstensi) and os.path.isfile(os.path.join(MP3_DIR, n))
+        if n.lower().endswith(AUDIO_EXTENSIONS) and os.path.isfile(os.path.join(MP3_DIR, n))
     ]
 
 
@@ -804,22 +805,28 @@ class AppHTTPHandler(SimpleHTTPRequestHandler):
         self.send_header("Allow", "GET, POST, OPTIONS")
         self.end_headers()
 
-    def _static_file_allowed(self, path):
-        if path in STATIC_PAGES:
-            return True
-        if not path.startswith("/mp3/"):
-            return False
-        filename = unquote(path[len("/mp3/"):])
-        full_path = os.path.realpath(os.path.join(MP3_DIR, filename))
-        mp3_root = os.path.realpath(MP3_DIR)
+    def _audio_file_allowed(self, path, prefix, root):
+        filename = unquote(path[len(prefix):])
+        full_path = os.path.realpath(os.path.join(root, filename))
+        root_real = os.path.realpath(root)
         return (
             bool(filename)
             and not filename.startswith(".")
             and "/" not in filename
             and "\\" not in filename
-            and os.path.commonpath([full_path, mp3_root]) == mp3_root
+            and os.path.splitext(filename)[1].lower() in AUDIO_EXTENSIONS
+            and os.path.commonpath([full_path, root_real]) == root_real
             and os.path.isfile(full_path)
         )
+
+    def _static_file_allowed(self, path):
+        if path in STATIC_PAGES:
+            return True
+        if path.startswith("/mp3/"):
+            return self._audio_file_allowed(path, "/mp3/", MP3_DIR)
+        if path.startswith("/sfx/"):
+            return self._audio_file_allowed(path, "/sfx/", SFX_DIR)
+        return False
 
     def client_ip(self):
         return _client_ip(self.headers, self.client_address[0])
@@ -925,8 +932,8 @@ class AppHTTPHandler(SimpleHTTPRequestHandler):
             query = urlparse(self.path).query
             self.redirect(f"/engine.html{f'?{query}' if query else ''}", 301)
             return
-        if path.startswith("/mp3/"):
-            if not self.auth_payload():
+        if path.startswith(("/mp3/", "/sfx/")):
+            if not (self.auth_payload() or self.has_overlay_token()):
                 self.send_response(401)
                 self.end_headers()
                 return
@@ -1005,6 +1012,12 @@ class AppHTTPHandler(SimpleHTTPRequestHandler):
                     }
                 )
 
+            if path == "/api/songs":
+                if not (payload or self.has_overlay_token()):
+                    return self.send_json({"ok": False, "error": "Unauthorized"}, 401)
+                songs = [os.path.basename(p) for p in daftar_musik_latar()]
+                return self.send_json({"songs": songs})
+
             if not payload:
                 return self.send_json({"ok": False, "error": "Unauthorized"}, 401)
 
@@ -1042,10 +1055,6 @@ class AppHTTPHandler(SimpleHTTPRequestHandler):
                     }
                 )
 
-            if path == "/api/songs":
-                songs = [os.path.basename(p) for p in daftar_musik_latar()]
-                return self.send_json({"songs": songs})
-
             return self.send_json({"error": "Endpoint tidak ditemukan"}, 404)
 
         # Dashboard: wajib login
@@ -1075,9 +1084,9 @@ class AppHTTPHandler(SimpleHTTPRequestHandler):
                 self.path = "/snake.html"
             return super().do_GET()
 
-        # File audio hanya untuk user yang sudah login
-        if path.startswith("/mp3/"):
-            if not self.auth_payload():
+        # File audio: login atau overlay token (agar BGM/SFX tetap jalan di OBS)
+        if path.startswith(("/mp3/", "/sfx/")):
+            if not (self.auth_payload() or self.has_overlay_token()):
                 return self.send_json({"error": "Unauthorized"}, 401)
             if self._static_file_allowed(path):
                 return super().do_GET()

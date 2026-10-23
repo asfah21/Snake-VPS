@@ -29,6 +29,7 @@ services:
       - DEFAULT_USERNAME=${DEFAULT_USERNAME:-}
     volumes:
       - ./mp3:/app/mp3:ro
+      - ./sfx:/app/sfx:ro
       - snake-data:/app/data
     networks:
       - app-network

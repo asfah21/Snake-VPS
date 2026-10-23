@@ -30,6 +30,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN useradd --create-home appuser && mkdir -p /app/data && chown appuser:appuser /app/data
 COPY --chown=appuser:appuser server.py home.html login.html engine.html snake.html ./
 COPY --chown=appuser:appuser mp3 ./mp3
+COPY --chown=appuser:appuser sfx ./sfx
 
 # Jalankan sebagai non-root
 USER appuser

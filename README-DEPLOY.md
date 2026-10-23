@@ -299,7 +299,8 @@ https://snake.domainkamu.com/engine.html?token=<OVERLAY_TOKEN>
 | `GET /snake.html` | JWT / overlay token | Game legacy |
 | `GET /api/status` | JWT | Status bot + statistik |
 | `GET /api/config` | JWT | Path game, port WS, overlay token |
-| `GET /api/songs` | JWT | Daftar musik di folder `mp3/` |
+| `GET /api/songs` | JWT / overlay token | Daftar backsound di folder `mp3/` |
+| `GET /sfx/*.mp3` | JWT / overlay token | Sound belok `right/left/up/down.mp3` |
 | `GET /healthz` | publik | Health check Docker |
 | `POST /api/start` | JWT + CSRF | Mulai koneksi TikTok Live |
 | `POST /api/stop` | JWT + CSRF | Hentikan koneksi |
@@ -371,9 +372,18 @@ docker compose restart snake-live
 
 ### Audio/BGM
 
-- Di VPS `BGM=false` karena tidak ada audio device
-- Audio game tetap berjalan di browser/OBS
-- Di Windows lokal, BGM bisa diaktifkan lewat env `BGM=true`
+- Backsound diputar oleh **browser/OBS** dari file di folder `mp3/`.
+- Jika `mp3/` kosong, game berjalan tanpa backsound (tidak ada error).
+- Lagu diputar berurutan lalu diulang otomatis. Format yang didukung:
+  `.mp3`, `.ogg`, `.wav`, `.flac`, `.m4a`.
+- Sound belok memakai `sfx/right.mp3`, `sfx/left.mp3`, `sfx/up.mp3`, dan
+  `sfx/down.mp3`. Bunyi hanya saat arah ular berubah.
+- Volume default ada di `engine.html` dan `snake.html`:
+  `VOL_BGM=.10` (10%) dan `VOL_SFX=.25` (25%).
+- Link OBS dengan `?token=` otomatis ikut memuat BGM/SFX.
+- BGM pygame server sekarang **opt-in**: default mati karena backsound sudah
+  diputar browser/OBS. Aktifkan hanya jika memang ingin audio keluar dari
+  mesin server dengan `BGM=true` (bisa dobel jika dibuka di PC yang sama).
 
 ## 10. Catatan keamanan
 
@@ -384,4 +394,5 @@ docker compose restart snake-live
 - Jangan gunakan overlay token sebagai password admin.
 - Backup volume `snake-data` jika ingin menyimpan JWT/overlay secret.
 - `server.py` hanya menyajikan `login.html`, `home.html`, `engine.html`,
-  `snake.html`, dan file `mp3/`; source code dan directory listing diblokir.
+  `snake.html`, file `mp3/`, dan file `sfx/`; source code dan directory
+  listing diblokir.
