@@ -1,10 +1,10 @@
 <!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Snake Live 3D</title>
 <style>
-html,body{margin:0;height:100%;background:#02040a;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#fff}
-/* ===== PANGGUNG TETAP 1080x1920 (portrait TikTok Live) ===== */
+html,body{margin:0;height:100%;height:100dvh;background:#02040a;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#fff}
+/* ===== PANGGUNG RESPONSIF (lebar logika 1080, tinggi mengikuti viewport) ===== */
 #stage{position:absolute;left:50%;top:50%;width:1080px;height:1920px;transform-origin:50% 50%;transform:translate(-50%,-50%);background:#02040a;overflow:hidden}
-#stage canvas{display:block;width:1080px;height:1920px}
+#stage canvas{display:block;width:100%;height:100%}
 .box{position:absolute;background:rgba(7,14,28,0.72);border:1px solid rgba(56,189,248,0.25);border-radius:24px;padding:14px 26px;font-weight:800;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 16px 48px rgba(0,0,0,0.75),inset 0 1px 0 rgba(255,255,255,0.15)}
 /* HUD Telemetri ISS di tengah atas */
 #hud{top:36px;left:50%;transform:translateX(-50%);display:flex;align-items:center;padding:12px 14px;border-radius:30px;white-space:nowrap;background:linear-gradient(180deg,rgba(11,23,45,0.85) 0%,rgba(6,12,24,0.7) 100%);border:1px solid rgba(56,189,248,0.35);box-shadow:0 16px 40px rgba(0,0,0,0.8),0 0 30px rgba(14,165,233,0.15),inset 0 1px 1px rgba(255,255,255,0.2)}
@@ -34,6 +34,18 @@ html,body{margin:0;height:100%;background:#02040a;overflow:hidden;font-family:sy
 #cd{position:relative;font-size:280px;font-weight:900;line-height:1;color:#fff;text-shadow:0 0 50px #38bdf8,0 0 120px #0284c7,0 8px 0 rgba(0,0,0,0.8);animation:cdpop 1s cubic-bezier(.2,.9,.3,1) both}
 @keyframes cdpop{0%{transform:scale(.5);opacity:0}22%{transform:scale(1.08);opacity:1}72%{transform:scale(1);opacity:1}100%{transform:scale(1.15);opacity:0}}
 @keyframes ringpop{0%{transform:scale(.72);opacity:0}25%{transform:scale(1);opacity:.95}100%{transform:scale(1.3);opacity:0}}
+/* Layar HP: perbesar skor & daftar gift agar tetap terbaca setelah panggung diskalakan */
+@media (max-width:600px){
+  #hud{padding:16px;border-radius:34px}
+  #hud .stat{gap:10px;padding:2px 18px}
+  #hud .ic{font-size:46px}
+  #hud small{font-size:24px;letter-spacing:.14em}
+  #hud b{font-size:48px}
+  #hud em{font-size:26px}
+  #tiers{font-size:36px;gap:10px 12px}
+  #tiers span{min-width:92px;padding:8px 14px}
+  #toast{font-size:40px}
+}
 </style>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
 </head><body>
@@ -270,8 +282,8 @@ function countdown(){
 countdown();
 
 /* ================= SCENE 3D ================= */
-///// KANVAS TETAP 1080x1920 //////
-const CW=1080,CH=1920,stage=$('stage');
+///// KANVAS LOGIKA 1080 x tinggi dinamis //////
+const CW=1080;let CH=1920;const stage=$('stage');
 const rd=new THREE.WebGLRenderer({antialias:true});rd.setPixelRatio(1);rd.setSize(CW,CH,false);stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
 const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(48,CW/CH,.1,700);sc.fog=new THREE.Fog(0x070a18,90,330);
 // Area aman kanvas: HUD di atas, kartu gift di bawah → papan dipaskan ke ruang di antaranya
@@ -280,8 +292,21 @@ const FIT=[];for(const x of[-W/2-.55,W/2+.55])for(const z of[-H/2-.55,H/2+.55])f
 const _v=new THREE.Vector3();
 function bounds(){let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;for(const p of FIT){_v.copy(p).project(cam);if(_v.x<minX)minX=_v.x;if(_v.x>maxX)maxX=_v.x;if(_v.y<minY)minY=_v.y;if(_v.y>maxY)maxY=_v.y;}return{minX,maxX,minY,maxY};}
 function placeCam(d){cam.position.set(0,d*.82,d*.57+1);cam.lookAt(0,0,-H*.04);cam.updateMatrixWorld();}
-// panggung 1080x1920 diskalakan pas di jendela (letterbox), isi kanvas tidak berubah
-function fitStage(){const s=Math.min(innerWidth/CW,innerHeight/CH);stage.style.transform=`translate(-50%,-50%) scale(${s})`;}
+// Panggung mengikuti viewport: lebar tetap 1080 unit, tinggi menyesuaikan rasio layar.
+// Board tetap proporsional karena kamera memakai aspek viewport, bukan ditarik/stretch.
+function fitStage(){
+  const vw=Math.max(1,window.innerWidth||1),vh=Math.max(1,window.innerHeight||1);
+  const s=vw/CW;
+  CH=vh/s;
+  stage.style.width=CW+'px';
+  stage.style.height=CH+'px';
+  stage.style.transform=`translate(-50%,-50%) scale(${s})`;
+  // Resolusi buffer mengikuti devicePixelRatio setelah skala panggung,
+  // sehingga 1080 unit logika tidak berubah tetapi hasil render tetap tajam.
+  const renderScale=Math.min(2,(window.devicePixelRatio||1)*s);
+  rd.setPixelRatio(renderScale);
+  rd.setSize(CW,CH,false);
+}
 function fitCamera(){
   cam.aspect=CW/CH;cam.clearViewOffset();cam.updateProjectionMatrix();
   const rw=2*(1-UI.side*2),rh=2*(1-UI.top-UI.bottom);let lo=8,hi=560;
@@ -289,7 +314,10 @@ function fitCamera(){
   placeCam(hi*FILL);const b=bounds(),cx=(b.minX+b.maxX)/2,cy=(b.minY+b.maxY)/2,tY=1-2*(UI.top+(1-UI.top-UI.bottom)/2);
   cam.setViewOffset(CW,CH,-cx*CW/2,(tY-cy)*CH/2,CW,CH);   // geser papan tepat ke tengah area aman
 }
-fitStage();fitCamera();addEventListener('resize',fitStage);
+function layout(){fitStage();fitCamera();}
+layout();
+addEventListener('resize',layout);
+addEventListener('orientationchange',layout);
 /* ================= 3D SCENE: ISS OBSERVATION BAY & ORBITAL EARTH ================= */
 sc.add(new THREE.AmbientLight(0xffffff, 0.45)); // Pencahayaan seimbang dan terdefinisi
 sc.add(new THREE.HemisphereLight(0xffffff, 0x1e293b, 0.4));
