@@ -397,6 +397,47 @@
       box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
     }
 
+    /* PENGATURAN TAMPILAN GAME (resolusi & FPS) */
+    .setting-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .select-input {
+      width: 100%;
+      min-width: 0;
+      min-height: 48px;
+      background: rgba(7, 12, 24, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      border-radius: 14px;
+      padding: 10px 12px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .select-input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+    }
+
+    .select-input option {
+      background: #0b1220;
+      color: #fff;
+    }
+
+    .setting-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 0 0 14px;
+      line-height: 1.4;
+    }
+
     /* ACTION BUTTONS */
     .btn-group {
       display: flex;
@@ -986,6 +1027,27 @@
             </div>
           </div>
 
+          <div class="setting-row">
+            <div class="input-group">
+              <label class="input-label" for="resSelect">Resolusi</label>
+              <select class="select-input" id="resSelect" onchange="saveGameSettings()">
+                <option value="">Default perangkat</option>
+                <option value="720">720p (720x1289)</option>
+                <option value="1080">1080p (1080x1920)</option>
+                <option value="auto">Res auto (ikuti layar)</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label class="input-label" for="fpsSelect">FPS</label>
+              <select class="select-input" id="fpsSelect" onchange="saveGameSettings()">
+                <option value="">Default perangkat</option>
+                <option value="30">30 FPS</option>
+                <option value="60">60 FPS</option>
+              </select>
+            </div>
+          </div>
+          <p class="setting-hint" id="gameSettingHint"></p>
+
           <div class="btn-group">
             <button class="btn btn-primary" id="btnLaunch" onclick="launchSnakeApp()">
               <span>🚀</span> Jalankan & Buka Game
@@ -1114,6 +1176,43 @@
   <script>
     const $ = id => document.getElementById(id);
     const GAME_PATH = '/engine.html';
+
+    // Pengaturan tampilan game (disimpan di browser ini, dikirim sebagai ?res=...&fps=...)
+    function gameUrl(extra) {
+      const p = new URLSearchParams(extra || {});
+      const r = $('resSelect') ? $('resSelect').value : '';
+      const f = $('fpsSelect') ? $('fpsSelect').value : '';
+      if (r) p.set('res', r);
+      if (f) p.set('fps', f);
+      const q = p.toString();
+      return `${location.origin}${GAME_PATH}${q ? '?' + q : ''}`;
+    }
+
+    function gameSettingHint() {
+      const r = $('resSelect').value, f = $('fpsSelect').value;
+      const resTxt = {
+        '': 'Resolusi mengikuti perangkat (HP 720p, desktop 1080p)',
+        '720': 'Buffer 720x1289, paling ringan untuk HP',
+        '1080': 'Buffer 1080x1920, paling tajam, butuh HP kuat',
+        'auto': 'Mengikuti ukuran layar (mode lama), lebih berat dan bisa berkedip di HP'
+      }[r];
+      const fpsTxt = f ? `${f} FPS` : 'FPS default (HP 30, desktop bebas)';
+      $('gameSettingHint').textContent = `${resTxt}. ${fpsTxt}.`;
+    }
+
+    function saveGameSettings() {
+      localStorage.setItem('snake_res', $('resSelect').value);
+      localStorage.setItem('snake_fps', $('fpsSelect').value);
+      gameSettingHint();
+    }
+
+    window.addEventListener('DOMContentLoaded', function restoreGameSettings() {
+      const r = localStorage.getItem('snake_res') || '';
+      const f = localStorage.getItem('snake_fps') || '';
+      if (['', '720', '1080', 'auto'].includes(r)) $('resSelect').value = r;
+      if (['', '30', '60'].includes(f)) $('fpsSelect').value = f;
+      gameSettingHint();
+    });
     let logHydrated = false;
     let usernameInitialized = false;
     let authRedirecting = false;
@@ -1224,7 +1323,7 @@
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           showToast('Bot dimulai! Membuka engine...', '🚀');
-          const url = `${location.origin}${GAME_PATH}`;
+          const url = gameUrl();
           if (gameWin && !gameWin.closed) {
             gameWin.location.href = url;
           } else {
@@ -1263,31 +1362,33 @@
 
     // Buka Layar Game (default: engine.html)
     function openGameOverlay() {
-      const url = `${location.origin}${GAME_PATH}`;
+      const url = gameUrl();
       window.open(url, '_blank');
     }
 
     // Salin Link OBS Browser Source (default: engine.html)
     async function copyOBSLink() {
-      let url = `${location.origin}${GAME_PATH}`;
+      let tokenParam = {};
       try {
         const res = await fetch('/api/config', { credentials: 'same-origin', cache: 'no-store' });
         if (res.status === 401) return goLogin();
         if (res.ok) {
           const data = await res.json();
           if (data.overlay_token) {
-            url += `?token=${encodeURIComponent(data.overlay_token)}`;
+            tokenParam = { token: data.overlay_token };
           }
         }
       } catch (e) {}
 
-      const done = () => showToast('Link OBS disalin! Atur ukuran 1080x1920', '📋');
+      const url = gameUrl(tokenParam);
+      const obsSize = $('resSelect').value === '720' ? '720x1289' : '1080x1920';
+      const done = () => showToast(`Link OBS disalin! Atur ukuran ${obsSize}`, '📋');
       if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(url).then(done).catch(() => {
-          prompt('Salin link ini untuk OBS Browser Source (1080x1920):', url);
+          prompt(`Salin link ini untuk OBS Browser Source (${obsSize}):`, url);
         });
       } else {
-        prompt('Salin link ini untuk OBS Browser Source (1080x1920):', url);
+        prompt(`Salin link ini untuk OBS Browser Source (${obsSize}):`, url);
       }
     }
 
