@@ -82,200 +82,63 @@ function bfs(start,allow){
   }
 }
 
-/* BFS Dinamis (Time-Aware): memperhitungkan pergerakan badan dan ekor pada setiap langkah (step t).
-   Segmen ke-k (0=kepala, L-1=ekor) telah kosong jika t >= L - k (atau k >= L - t). */
-function dynamicFindApples(){
-  const head=snake[0],L=snake.length;
-  _bodyIdx.fill(-1);
-  for(let k=0;k<L;k++){
-    const c=snake[k];
-    if(_bodyIdx[c]===-1)_bodyIdx[c]=k;
-  }
-  _dist.fill(-1);
-  _parent.fill(-1);
-  _dist[head]=0;
-  _q[0]=head;
-  let qH=0,qT=1;
-  const found=[];
-  while(qH<qT){
-    const curr=_q[qH++],d=_dist[curr],t=d+1,cx=curr%W,cy=(curr/W)|0;
-    for(let k=0;k<4;k++){
-      const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
-      if(nx<0||ny<0||nx>=W||ny>=H)continue;
-      const m=ny*W+nx;
-      if(curr===head&&L>1&&m===snake[1])continue; // leher
-      if(_dist[m]>=0)continue;
-      const segK=_bodyIdx[m];
-      if(segK>=0&&segK<L-t)continue; // segmen tubuh belum bergeser pada step t
-      _dist[m]=t;
-      _parent[m]=curr;
-      _q[qT++]=m;
-      if(apples.has(m))found.push(m);
-    }
-  }
-  return found;
-}
-
-function getReconstructedPath(target){
-  const head=snake[0];
-  let curr=target,cnt=0;
-  while(curr!==head&&curr>=0&&cnt<N){
-    _pathBuf[cnt++]=curr;
-    curr=_parent[curr];
-  }
-  if(curr!==head)return null;
-  _pathBuf[cnt++]=head;
-  const res=new Int32Array(cnt);
-  for(let i=0;i<cnt;i++)res[i]=_pathBuf[cnt-1-i];
-  return res;
-}
-
-/* Periksa apakah kepala dapat menjangkau ekor pada kondisi virtual */
-function canReachTail(vHead,vTail,vOccMap){
-  if(vHead===vTail)return {reachable:true,dist:0};
-  _tailDist.fill(-1);
-  _tailDist[vHead]=0;
-  _q[0]=vHead;
-  let qH=0,qT=1;
-  while(qH<qT){
-    const curr=_q[qH++],d=_tailDist[curr],cx=curr%W,cy=(curr/W)|0;
-    for(let k=0;k<4;k++){
-      const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
-      if(nx<0||ny<0||nx>=W||ny>=H)continue;
-      const m=ny*W+nx;
-      if(m===vTail)return {reachable:true,dist:d+1};
-      if(_tailDist[m]>=0||vOccMap[m])continue;
-      _tailDist[m]=d+1;
-      _q[qT++]=m;
-    }
-  }
-  return {reachable:false,dist:-1};
-}
-
-/* Hitung luas ruang kosong yang masih terhubung */
-function getFreeSpace(start,vOccMap,allowTail){
-  _visited.fill(0);
-  _visited[start]=1;
-  _q[0]=start;
-  let qH=0,qT=1,cnt=0;
-  while(qH<qT){
-    const curr=_q[qH++],cx=curr%W,cy=(curr/W)|0;
-    for(let k=0;k<4;k++){
-      const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
-      if(nx<0||ny<0||nx>=W||ny>=H)continue;
-      const m=ny*W+nx;
-      if(_visited[m])continue;
-      if(m!==allowTail&&vOccMap[m])continue;
-      _visited[m]=1;
-      _q[qT++]=m;
-      cnt++;
-    }
-  }
-  return cnt;
-}
-
-/* Safety Guard: Simulasi kondisi ular setelah apel dituju dan dimakan */
-function evaluateApplePath(path,targetApple){
-  const vSnake=snake.slice();
-  _vOcc.set(occ);
-  for(let i=1;i<path.length;i++){
-    const cellN=path[i];
-    const isFood=(cellN===targetApple)||apples.has(cellN);
-    const tail=vSnake[vSnake.length-1];
-    if(isFood){
-      vSnake.unshift(cellN);
-      _vOcc[cellN]=1;
-    }else{
-      _vOcc[tail]=0;
-      vSnake.pop();
-      if(_vOcc[cellN])return null; // tabrakan tubuh
-      vSnake.unshift(cellN);
-      _vOcc[cellN]=1;
-    }
-  }
-  if(vSnake.length>=N){
-    return {path,steps:path.length-1,canTail:true,distToTail:1,freeSpace:0,vLen:vSnake.length};
-  }
-  const vHead=vSnake[0],vTail=vSnake[vSnake.length-1];
-  const tailInfo=canReachTail(vHead,vTail,_vOcc);
-  const space=getFreeSpace(vHead,_vOcc,vTail);
-  return {
-    path,
-    steps:path.length-1,
-    canTail:tailInfo.reachable,
-    distToTail:tailInfo.dist,
-    freeSpace:space,
-    vLen:vSnake.length
-  };
-}
-
-/* Food-First: cari dan evaluasi SEMUA apel yang terjangkau secara dinamis */
-function findFoodMove(){
-  if(apples.size===0)return -1;
-  const foundApples=dynamicFindApples();
-  if(foundApples.length===0)return -1;
-  const candidates=[];
-  for(const a of foundApples){
-    const path=getReconstructedPath(a);
-    if(!path||path.length<2)continue;
-    const ev=evaluateApplePath(path,a);
-    if(!ev)continue;
-    candidates.push(ev);
-  }
-  if(candidates.length===0)return -1;
-  const safe=candidates.filter(c=>c.canTail||c.freeSpace>Math.max(c.vLen+5,20));
-  if(safe.length===0)return -1;
-  safe.sort((a,b)=>{
-    if(a.canTail!==b.canTail)return a.canTail?-1:1;
-    if(a.steps!==b.steps)return a.steps-b.steps;
-    return b.freeSpace-a.freeSpace;
-  });
-  return safe[0].path[1];
-}
-
-/* Fallback: ikuti ekor secara aman atau masuki ruang terbuka paling luas */
-function fallbackMove(){
-  const head=snake[0],hx=head%W,hy=(head/W)|0,tail=snake[snake.length-1];
-  let best=-1,bestSc=-1e18;
-  for(let k=0;k<4;k++){
-    const x=hx+DIRS[k][0],y=hy+DIRS[k][1];
-    if(x<0||y<0||x>=W||y>=H)continue;
-    const n=y*W+x;
-    if(snake.length>1&&n===snake[1])continue;
-    if(occ[n]&&n!==tail)continue;
-    const isFood=apples.has(n);
-    const vSnake=snake.slice();
-    _vOcc.set(occ);
-    if(isFood){
-      vSnake.unshift(n);
-      _vOcc[n]=1;
-    }else{
-      _vOcc[tail]=0;
-      vSnake.pop();
-      vSnake.unshift(n);
-      _vOcc[n]=1;
-    }
-    const vHead=vSnake[0],vTail=vSnake[vSnake.length-1];
-    const tailInfo=canReachTail(vHead,vTail,_vOcc);
-    const space=getFreeSpace(vHead,_vOcc,vTail);
-    let sc=0;
-    if(tailInfo.reachable){
-      sc=1e9+space*100+tailInfo.dist;
-    }else{
-      sc=space;
-    }
-    if(sc>bestSc){
-      bestSc=sc;
-      best=n;
-    }
-  }
-  return best;
-}
-
+/* ===== STRATEGI: ular menyapu papan mengikuti siklus Hamilton (baris demi baris, rapat),
+   dan hanya mengambil jalan pintas bila AMAN dan benar-benar menghemat langkah. =====
+   Aturan emas: badan ular selalu tersusun menurut urutan siklus (ekor -> kepala).
+   Jalan pintas hanya boleh MAJU di dalam sel kosong antara kepala dan ekor, tidak pernah
+   mundur / memotong badan sendiri. Akibatnya: tidak ada ruang terisolasi, tidak ada
+   gerakan berliku tanpa tujuan, dan ular tidak pernah terjebak. */
+const _dpS=new Int32Array(N),_dpC=new Int32Array(N),_dpP=new Int32Array(N),_bodyOff=new Int32Array(N+1);
+const INF=1e9;
 function nextMove(){
-  const f=findFoodMove();
-  if(f>=0)return f;
-  return fallbackMove();
+  const L=snake.length,head=snake[0],tail=snake[L-1],hi=idx[head];
+  const off=c=>(idx[c]-hi+N)%N;
+  const atOff=o=>cell((hi+o)%N);
+  // posisi ekor (dalam offset siklus) setelah t langkah tanpa makan. 0 dianggap N (melingkar penuh)
+  for(let t=0;t<L;t++){const o=off(snake[L-1-t]);_bodyOff[t]=o===0?N:o;}
+  const tailAt=t=>t>=L-1?N:_bodyOff[t];
+
+  // langkah dasar: ikuti siklus (selalu aman)
+  const nxt=cell((hi+1)%N);
+  const cycleStep=()=>{
+    if(!occ[nxt]||(nxt===tail&&!apples.has(nxt)))return nxt;
+    return -1;
+  };
+  if(apples.size===0)return cycleStep();
+
+  // DP jalur terpendek MONOTON (offset siklus selalu bertambah) = jalan pintas aman
+  _dpS.fill(INF);_dpC.fill(0);_dpP.fill(-1);
+  _dpS[head]=0;
+  let reach=0;
+  for(let o=0;o<N;o++){
+    const c=atOff(o);
+    const s=_dpS[c];
+    if(s>=INF)continue;
+    const cnt=_dpC[c],cx=c%W,cy=(c/W)|0;
+    for(let k=0;k<4;k++){
+      const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
+      if(nx<0||ny<0||nx>=W||ny>=H)continue;
+      const m=ny*W+nx,om=off(m);
+      if(om<=o)continue;                        // hanya maju searah siklus
+      const g=apples.has(m)?1:0;
+      const T=tailAt(s-cnt);                    // posisi ekor saat langkah ini dijalankan
+      if(!(om<T||(om===T&&!g)))continue;        // harus sel kosong (ekor boleh ditempati jika tidak tumbuh)
+      const s2=s+1,c2=cnt+g;
+      if(s2<_dpS[m]||(s2===_dpS[m]&&c2>_dpC[m])){_dpS[m]=s2;_dpC[m]=c2;_dpP[m]=c;}
+    }
+  }
+  // pilih apel dengan langkah paling sedikit (seri: yang jalurnya melewati lebih banyak apel)
+  let target=-1,bs=INF,bc=-1;
+  for(const a of apples){
+    const s=_dpS[a];
+    if(s>=INF||s===0)continue;
+    const c=_dpC[a];
+    if(s<bs||(s===bs&&c>bc)){bs=s;bc=c;target=a;}
+  }
+  if(target<0)return cycleStep();
+  let cur=target;
+  while(_dpP[cur]!==head&&_dpP[cur]>=0)cur=_dpP[cur];
+  return _dpP[cur]===head?cur:cycleStep();
 }
 
 function step(){
@@ -1025,7 +888,7 @@ function frame(now){
       if(r===1){sfx.eat();burst(wp(snake[0]),8);jaw=1;bulges.push(0);lastEatAt=now;}
       if(r===2){over=now;akhirRonde('🏆 PAPAN PENUH!');}}
     // papan buntu (badan mengunci, tidak ada apel terjangkau) → tutup ronde juga
-    if(!over&&snake.length>N*0.45&&now-lastEatAt>12000){over=now;akhirRonde('⏳ PAPAN BUNTU!');}
+    if(!over&&snake.length>N*0.45&&now-lastEatAt>Math.max(12000,N*170*1.4)){over=now;akhirRonde('⏳ PAPAN BUNTU!');}
     spawnT-=dt;
     // sisa sel yang masih bisa diisi apel (papan penuh → berhenti spawn & buang antrean)
     const ruang=N-snake.length-apples.size-flying.length;

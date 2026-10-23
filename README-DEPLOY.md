@@ -396,3 +396,15 @@ docker compose restart snake-live
 - `server.py` hanya menyajikan `login.html`, `home.html`, `engine.html`,
   `snake.html`, file `mp3/`, dan file `sfx/`; source code dan directory
   listing diblokir.
+
+## Parameter performa HP (engine.html)
+
+Tambahkan di akhir URL, contoh: `https://domain/engine.html?res=720&fps=30`
+
+| Parameter | Nilai | Keterangan |
+|---|---|---|
+| `res` | `720` / `1080` / `auto` | `720` = buffer 720x1289, `1080` = 1080x1920, `auto` = mengikuti layar (mode lama). Default: HP `720`, desktop/OBS `1080` |
+| `fps` | `30` / `60` | Batas FPS render. Default HP `30`, desktop bebas |
+| `lite` | `1` / `0` | `1` = mode ringan (tanpa blur/bayangan CSS berat, geometri lebih sederhana). Default aktif otomatis di HP |
+
+Rekomendasi: HP kelas menengah `?res=720&fps=30`, HP kuat `?res=1080&fps=60`.

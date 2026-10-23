@@ -46,6 +46,13 @@ html,body{margin:0;height:100%;height:100dvh;background:#02040a;overflow:hidden;
   #tiers span{min-width:92px;padding:8px 14px}
   #toast{font-size:40px}
 }
+/* ===== MODE RINGAN (HP): backdrop-filter di atas canvas WebGL yang berubah tiap frame = penyebab utama patah-patah & kedip ===== */
+#stage{will-change:transform;contain:layout paint}
+body.lite .box{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(7,14,28,.9);box-shadow:none}
+body.lite #over{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(2,6,15,.94)}
+body.lite #hud .ic{filter:none}
+body.lite #hud .stat b,body.lite #hud small,body.lite #cd{text-shadow:none}
+body.lite #cdring{box-shadow:none}
 </style>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
 </head><body>
@@ -284,9 +291,21 @@ countdown();
 /* ================= SCENE 3D ================= */
 ///// KANVAS LOGIKA 1080 x tinggi dinamis //////
 const CW=1080;let CH=1920;const stage=$('stage');
-const LOW_POWER=Math.min(window.innerWidth,window.innerHeight)<=600;
-const rd=new THREE.WebGLRenderer({antialias:!LOW_POWER,powerPreference:'high-performance'});rd.setPixelRatio(1);rd.setSize(CW,CH,false);stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
-const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(48,CW/CH,.1,700);sc.fog=new THREE.Fog(0x070a18,90,330);
+const MOBILE=Math.min(window.innerWidth,window.innerHeight)<=600;
+const LOW_POWER=QS.get('lite')?QS.get('lite')!=='0':MOBILE;          // ?lite=1 paksa ringan, ?lite=0 matikan
+document.body.classList.toggle('lite',LOW_POWER);
+/* Resolusi render (buffer): ?res=1080 -> 1080x1920 | ?res=720 -> 720x1289 | ?res=auto -> mengikuti layar (mode lama).
+   Default: HP = 720, desktop/OBS = 1080. Buffer TETAP; browser hanya menskalakan tampilannya (tanpa kedip). */
+const RES=String(QS.get('res')||(LOW_POWER?'720':'1080')).toLowerCase();
+const FIXED=RES!=='auto';
+const RES_W=FIXED?(parseInt(RES,10)||720):CW;
+const RES_ASPECT=RES_W===720?1289/720:1920/1080;
+if(FIXED)CH=Math.round(CW*RES_ASPECT);
+/* Batas FPS render: HP default 30 (stabil lebih enak dilihat daripada 60 yang naik-turun). ?fps=60 untuk bebas */
+const FPS_CAP=+(QS.get('fps')||(LOW_POWER?30:0));
+const MIN_DT=(FPS_CAP>0&&FPS_CAP<60)?1000/FPS_CAP-2:0;
+const rd=new THREE.WebGLRenderer({antialias:!LOW_POWER,powerPreference:'high-performance',stencil:false});rd.setPixelRatio(1);if(FIXED){stage.style.width=CW+'px';stage.style.height=CH+'px';rd.setSize(RES_W,Math.round(RES_W*CH/CW),false);}else rd.setSize(CW,CH,false);stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
+const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(48,CW/CH,2.5,700);sc.fog=new THREE.Fog(0x070a18,90,330);
 // Area aman kanvas: HUD di atas, kartu gift di bawah → papan dipaskan ke ruang di antaranya
 const UI={top:.06,bottom:.175,side:.022},FILL=.96;   // FILL<1 = papan di-zoom sedikit lebih besar
 const FIT=[];for(const x of[-W/2-.55,W/2+.55])for(const z of[-H/2-.55,H/2+.55])for(const y of[-.5,2.2])FIT.push(new THREE.Vector3(x,y,z));
@@ -297,6 +316,11 @@ function placeCam(d){cam.position.set(0,d*.82,d*.57+1);cam.lookAt(0,0,-H*.04);ca
 // Board tetap proporsional karena kamera memakai aspek viewport, bukan ditarik/stretch.
 function fitStage(){
   const vw=Math.max(1,window.innerWidth||1),vh=Math.max(1,window.innerHeight||1);
+  if(FIXED){                                   // buffer tetap -> cukup skala CSS (murah, tidak menghapus canvas)
+    const sf=Math.min(vw/CW,vh/CH);
+    stage.style.transform=`translate(-50%,-50%) scale(${sf})`;
+    return;
+  }
   // Layar kecil (HP, termasuk landscape): panggung 85% viewport agar tidak terasa kebesaran.
   const mobile=Math.min(vw,vh)<=600,fit=mobile?.85:1;
   const safeW=vw*fit,safeH=vh*fit;
@@ -318,10 +342,13 @@ function fitCamera(){
   placeCam(hi*FILL);const b=bounds(),cx=(b.minX+b.maxX)/2,cy=(b.minY+b.maxY)/2,tY=1-2*(UI.top+(1-UI.top-UI.bottom)/2);
   cam.setViewOffset(CW,CH,-cx*CW/2,(tY-cy)*CH/2,CW,CH);   // geser papan tepat ke tengah area aman
 }
-function layout(){fitStage();fitCamera();}
+let _camDone=false;
+function layout(){fitStage();if(!FIXED||!_camDone){fitCamera();_camDone=true;}}
 layout();
-addEventListener('resize',layout);
-addEventListener('orientationchange',layout);
+/* resize di HP sering beruntun (address bar naik-turun): satukan per frame */
+let _rz=0;const onResize=()=>{if(_rz)return;_rz=requestAnimationFrame(()=>{_rz=0;layout();});};
+addEventListener('resize',onResize);
+addEventListener('orientationchange',onResize);
 /* ================= 3D SCENE: ISS OBSERVATION BAY & ORBITAL EARTH ================= */
 sc.add(new THREE.AmbientLight(0xffffff, 0.45)); // Pencahayaan seimbang dan terdefinisi
 sc.add(new THREE.HemisphereLight(0xffffff, 0x1e293b, 0.4));
@@ -348,7 +375,7 @@ const cv = (w, h, f) => {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
+  t.anisotropy = LOW_POWER ? 2 : 8;
   return t;
 };
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -716,7 +743,7 @@ const scaleT = cv(128, 128, (g, w, h) => {
 scaleT.repeat.set(4, 3);
 
 const body = new THREE.InstancedMesh(
-  new THREE.SphereGeometry(1, 14, 10),
+  new THREE.SphereGeometry(1, LOW_POWER ? 10 : 14, LOW_POWER ? 7 : 10),
   new THREE.MeshStandardMaterial({map: scaleT, roughness: 0.35, metalness: 0.1}),
   MAXS
 );
@@ -859,7 +886,8 @@ function freeCell(){
 function launch(){const c=freeCell();if(c<0){queue=0;return;}flying.push({c,t:0});fly.add(c);}
 function gift(user,name,n,icon='🎁'){queue+=n;flash=1;sfx.gift(n);const t=$('toast');t.textContent=`${icon} ${user||'Seseorang'} kirim ${name||'gift'} → +${n} apel!`;t.style.background=n>=100?'linear-gradient(90deg,#ff9f1c,#ff2d95)':n>=30?'#a23bffcc':'#ff2d55cc';t.classList.add('on');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('on'),3200);}
 function newRound(){over=0;$('over').style.display='none';round++;reset();applyTheme(round);queue=0;flying=[];fly.clear();bulges=[];acc=0;spawnT=0;lastEatAt=performance.now();lastDirKey='right';}
-function ui(){$('r').textContent=round;$('l').textContent=snake.length;$('e').textContent=eaten;}
+let _ur=-1,_ul=-1,_ue=-1;
+function ui(){if(_ur!==round){_ur=round;$('r').textContent=round;}if(_ul!==snake.length){_ul=snake.length;$('l').textContent=snake.length;}if(_ue!==eaten){_ue=eaten;$('e').textContent=eaten;}}
 (function ws(){
   const qsPort=QS.get('ws');
   const directPort=qsPort||((location.protocol==='http:'&&location.port==='8001')?'8766':'');
@@ -902,6 +930,7 @@ addEventListener('keydown',e=>{
 /* Kecepatan ular TETAP: banyak apel/gift tidak lagi membuat ular makin cepat. */
 const STEP_MS=170;
 const stepOf=()=>STEP_MS;
+const BUNTU_MS=Math.max(12000,N*STEP_MS*1.4);   // AI Hamilton bisa butuh 1 putaran penuh menuju apel; jangan salah vonis 'buntu'
 let last=performance.now(),tc=0,rafId=0,lastRaf=performance.now(),lastEatAt=performance.now();const col=new THREE.Color();
 /* Tutup ronde: tampilkan papan + mulai ronde baru otomatis. */
 function akhirRonde(judul){
@@ -909,7 +938,10 @@ function akhirRonde(judul){
   $('over').style.display='grid';
   sfx.over();
 }
+const _PV=[],_ap=new THREE.Vector3();
+const CR=(a,b,c,d,t,t2,t3)=>.5*(2*b+(-a+c)*t+(2*a-5*b+4*c-d)*t2+(-a+3*b-3*c+d)*t3);
 function frame(now){
+  if(MIN_DT&&!document.hidden&&now-last<MIN_DT){lastRaf=now;rafId=requestAnimationFrame(frame);return;}   // batasi FPS
   const dt=Math.min((now-last)/1000,document.hidden?1:.1);last=now;const T=now/1000;
   // gembulan menelan hanya berjalan sampai PERUT TENGAH (setengah panjang badan)
   bulgeMid=Math.max(4,snake.length*.5)*6;
@@ -920,7 +952,7 @@ function frame(now){
       if(r===1){sfx.eat();burst(wp(snake[0]),8);jaw=1;bulges.push(0);lastEatAt=now;}
       if(r===2){over=now;akhirRonde('🏆 PAPAN PENUH!');}}
     // papan buntu (badan mengunci, tidak ada apel terjangkau) → tutup ronde juga
-    if(!over&&snake.length>N*0.45&&now-lastEatAt>12000){over=now;akhirRonde('⏳ PAPAN BUNTU!');}
+    if(!over&&snake.length>N*0.45&&now-lastEatAt>BUNTU_MS){over=now;akhirRonde('⏳ PAPAN BUNTU!');}
     spawnT-=dt;
     // sisa sel yang masih bisa diisi apel (papan penuh → berhenti spawn & buang antrean)
     const ruang=N-snake.length-apples.size-flying.length;
@@ -931,27 +963,31 @@ function frame(now){
     const sp=6*1000/sm;for(let i=bulges.length-1;i>=0;i--){bulges[i]+=dt*sp;if(bulges[i]>=bulgeMid)bulges.splice(i,1);}
   }else if(now-over>4500)newRound();
   const k=over?1:Math.min(1,acc/stepOf());
-  const P=snake.map((c,i)=>wp(c).lerp(wp(prev[Math.min(i,prev.length-1)]),1-k));
-  const tot=(P.length-1)*6;let bn=0;
-  for(let i=0;i<P.length-1;i++){const p0=P[Math.max(i-1,0)],p1=P[i],p2=P[i+1],p3=P[Math.min(i+2,P.length-1)];
+  // posisi segmen memakai pool Vector3 (tanpa alokasi per frame -> tidak ada jeda GC di HP)
+  const PL=snake.length,tt=1-k;
+  for(let i=0;i<PL;i++){const c=snake[i],pc=prev[i<prev.length?i:prev.length-1];
+    const ax=(c%W)-W/2+.5,az=((c/W)|0)-H/2+.5,bx=(pc%W)-W/2+.5,bz=((pc/W)|0)-H/2+.5;
+    (_PV[i]||(_PV[i]=new THREE.Vector3())).set(ax+(bx-ax)*tt,R,az+(bz-az)*tt);}
+  const P=_PV;
+  const tot=(PL-1)*6;let bn=0;
+  for(let i=0;i<PL-1;i++){const p0=P[Math.max(i-1,0)],p1=P[i],p2=P[i+1],p3=P[Math.min(i+2,PL-1)];
     const dx=p2.x-p1.x,dz=p2.z-p1.z,l=Math.hypot(dx,dz)||1;
     for(let s=0;s<6;s++){const t=s/6,t2=t*t,t3=t2*t,j=i*6+s;
-      const f=q=>.5*(2*p1[q]+(-p0[q]+p2[q])*t+(2*p0[q]-5*p1[q]+4*p2[q]-p3[q])*t2+(-p0[q]+3*p1[q]-3*p2[q]+p3[q])*t3);
       const wig=Math.sin(j*.27-T*5)*.05*Math.min(1,j/15)*Math.min(1,(tot-j)/30);
       let r=R*Math.min(1,.3+(tot-j)/22)*(j<9?.86+j*.015:1);
-      let bl=0;for(const b of bulges){const pg=b/bulgeMid;if(pg<1)bl+=Math.exp(-(((j-b)/10)**2))*(1-pg);} // gembulan memudar sebelum perut tengah
+      let bl=0;for(let bi=0;bi<bulges.length;bi++){const b=bulges[bi],pg=b/bulgeMid;if(pg<1)bl+=Math.exp(-(((j-b)/10)**2))*(1-pg);} // gembulan memudar sebelum perut tengah
       r*=1+.55*Math.min(bl,1);
-      D.position.set(f('x')-dz/l*wig,.1+r*.92,f('z')+dx/l*wig);D.quaternion.identity();D.scale.set(r,r*.9,r);D.updateMatrix();body.setMatrixAt(bn,D.matrix);
+      D.position.set(CR(p0.x,p1.x,p2.x,p3.x,t,t2,t3)-dz/l*wig,.1+r*.92,CR(p0.z,p1.z,p2.z,p3.z,t,t2,t3)+dx/l*wig);D.quaternion.identity();D.scale.set(r,r*.9,r);D.updateMatrix();body.setMatrixAt(bn,D.matrix);
       const u=j/6,pc=PATS[(round-1)%PATS.length](u,j);col.setHSL(pc[0],pc[1],Math.min(.95,pc[2]+(bl>.3?.1:0)));body.setColorAt(bn,col);bn++;}}
   body.count=bn;body.instanceMatrix.needsUpdate=true;body.instanceColor.needsUpdate=true;
   {const hc=HEADC[(round-1)%HEADC.length];headMat.color.setHSL(hc[0],hc[1],hc[2]);}head.position.set(P[0].x,.1+R*.95,P[0].z);
-  if(P.length>1){const d=P[0].clone().sub(P[1]);if(d.lengthSq()>1e-4)head.rotation.y=Math.atan2(d.x,d.z);}
+  if(PL>1){const hx0=P[0].x-P[1].x,hz0=P[0].z-P[1].z;if(hx0*hx0+hz0*hz0>1e-4)head.rotation.y=Math.atan2(hx0,hz0);}
   jaw=Math.max(0,jaw-dt*2.5);jawG.rotation.x=jaw*.55;hb.scale.setScalar(1.15*(1+jaw*.1));tg.scale.z=Math.sin(T*7)>.55&&jaw<.1?1:.05;
   let an=0;
   const put=(p,s)=>{D.quaternion.identity();D.position.copy(p);D.position.y+=Math.sin(T*3+p.x)*.04;D.scale.setScalar(s);D.updateMatrix();appleG.setMatrixAt(an,D.matrix);
     D.position.y+=s+.08;D.scale.set(1,1,1);D.updateMatrix();stemI.setMatrixAt(an,D.matrix);
     D.position.set(p.x,.02,p.z);D.scale.setScalar(1.3+Math.sin(T*4+p.z)*.15);D.updateMatrix();glowI.setMatrixAt(an,D.matrix);an++;};
-  for(const a of apples){const p=wp(a);p.y=.3;put(p,.3);}
+  for(const a of apples){_ap.set((a%W)-W/2+.5,.3,((a/W)|0)-H/2+.5);put(_ap,.3);}
   for(let i=flying.length-1;i>=0;i--){const f=flying[i];f.t+=dt/.9;if(f.t>=1){fly.delete(f.c);if(!occ[f.c]){apples.add(f.c);burst(wp(f.c),5);}else queue++;flying.splice(i,1);continue;}
     const to=wp(f.c),p=P0.clone().lerp(to,f.t);p.y=P0.y+(.3-P0.y)*f.t+Math.sin(f.t*Math.PI)*4;put(p,.3*(.5+.5*f.t));}
   appleG.count=glowI.count=stemI.count=an;[appleG,glowI,stemI].forEach(m=>m.instanceMatrix.needsUpdate=true);
