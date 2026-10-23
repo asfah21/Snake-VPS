@@ -1,16 +1,50 @@
 services:
   snake-live:
     build: .
-    container_name: snake-live-hub
-    restart: unless-stopped
-    ports:
-      - "8001:8001"
-      - "8766:8766"
-    volumes:
-      - ./mp3:/app/mp3
+    container_name: snake-live
+    restart: always
+    init: true
     environment:
       - PORT=8001
       - WS_PORT=8766
       - HOST=0.0.0.0
-      - SDL_AUDIODRIVER=dummy
-      - DEFAULT_USERNAME=
+      - BGM=false
+      - TZ=Asia/Jakarta
+      - DATA_DIR=/app/data
+      - TRUST_PROXY=true
+      - COOKIE_SECURE=${COOKIE_SECURE:-auto}
+      - PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - OVERLAY_TOKEN=${OVERLAY_TOKEN:-}
+      - JWT_EXPIRE_HOURS=${JWT_EXPIRE_HOURS:-12}
+      - LOGIN_MAX_ATTEMPTS=${LOGIN_MAX_ATTEMPTS:-5}
+      - LOGIN_WINDOW_SECONDS=${LOGIN_WINDOW_SECONDS:-300}
+      - API_RATE_LIMIT=${API_RATE_LIMIT:-180}
+      - API_RATE_WINDOW_SECONDS=${API_RATE_WINDOW_SECONDS:-60}
+      - WS_RATE_LIMIT=${WS_RATE_LIMIT:-60}
+      - MAX_WS_CLIENTS=${MAX_WS_CLIENTS:-100}
+      - DEFAULT_USERNAME=${DEFAULT_USERNAME:-}
+    volumes:
+      - ./mp3:/app/mp3:ro
+      - snake-data:/app/data
+    networks:
+      - app-network
+    # Opsional untuk debug dari host. NPM tetap mengakses container lewat app-network.
+    ports:
+      - "127.0.0.1:8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  app-network:
+    external: true
+
+volumes:
+  snake-data:

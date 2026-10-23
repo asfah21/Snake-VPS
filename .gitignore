@@ -35,6 +35,9 @@ venv.bak/
 .env.local
 *.env
 
+# Auth / JWT / overlay secrets (runtime, jangan di-commit)
+data/
+
 # Browser / Automation Profiles & Cache
 .browser_profile/
 *.session

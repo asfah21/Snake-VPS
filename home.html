@@ -76,6 +76,38 @@
       gap: 16px;
     }
 
+    .auth-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(16, 185, 129, 0.28);
+      background: rgba(16, 185, 129, 0.10);
+      color: #a7f3d0;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+
+    .auth-chip:hover {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.42);
+      color: #fecaca;
+    }
+
+    .auth-chip:focus-visible {
+      outline: 2px solid var(--accent-cyan);
+      outline-offset: 2px;
+    }
+
+    .auth-chip .auth-exit {
+      opacity: 0.62;
+      font-weight: 600;
+    }
+
     .pill-badge {
       display: inline-flex;
       align-items: center;
@@ -216,6 +248,20 @@
       transform: scale(1.08) rotate(-4deg);
     }
 
+    .card-header.clickable {
+      cursor: pointer;
+      border-radius: 18px;
+      transition: background 0.2s ease;
+    }
+
+    .card-header.clickable:hover {
+      background: rgba(56, 189, 248, 0.06);
+    }
+
+    .card-header.clickable:active {
+      transform: scale(0.995);
+    }
+
     .app-info {
       flex: 1;
     }
@@ -317,6 +363,12 @@
 
     .btn:active {
       transform: scale(0.96);
+    }
+
+    .btn:disabled {
+      opacity: 0.65;
+      cursor: wait;
+      transform: none;
     }
 
     .btn-primary {
@@ -544,6 +596,18 @@
       .dock-item span:last-child {
         display: none;
       }
+      .status-bar {
+        padding: 9px 14px;
+      }
+      .status-bar .right {
+        gap: 10px;
+      }
+      .battery-indicator {
+        display: none;
+      }
+      .auth-chip .auth-exit {
+        display: none;
+      }
     }
   </style>
 </head>
@@ -561,7 +625,12 @@
     <div class="right">
       <span title="Koneksi Browser Aktif">👥 <b id="wsCount">0</b> Web</span>
       <span id="barClock">09:50</span>
-      <span>🔋 100%</span>
+      <span class="battery-indicator">🔋 100%</span>
+      <button class="auth-chip" type="button" onclick="logout()" title="Keluar dari dashboard">
+        <span aria-hidden="true">👤</span>
+        <b id="authUser">Admin</b>
+        <span class="auth-exit">Keluar</span>
+      </button>
     </div>
   </header>
 
@@ -578,11 +647,11 @@
 
       <!-- CARD 1: SNAKE LIVE INTERACTIVE (UTAMA) -->
       <article class="app-card" style="--card-accent: #38bdf8;">
-        <div class="card-header">
+        <div class="card-header clickable" onclick="launchSnakeApp()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();launchSnakeApp();}" role="button" tabindex="0" title="Klik untuk menjalankan Snake">
           <div class="app-icon">🐍</div>
           <div class="app-info">
             <h2 class="app-title">Snake Live TikTok</h2>
-            <p class="app-desc">Game Ular 3D Interaktif via Gift TikTok Live</p>
+            <p class="app-desc">Game Ular 3D Interaktif via Gift TikTok Live (engine.html)</p>
           </div>
         </div>
 
@@ -684,23 +753,23 @@
         </div>
       </article>
 
-      <!-- CARD 4: SNAKE V2 (SIMULATION LAB) -->
+      <!-- CARD 4: SNAKE LEGACY -->
       <article class="app-card" style="--card-accent: #a855f7;">
         <div class="card-header">
-          <div class="app-icon" style="background: linear-gradient(135deg, rgba(168,85,247,0.3), rgba(59,130,246,0.3));">🎮</div>
+          <div class="app-icon" style="background: linear-gradient(135deg, rgba(168,85,247,0.3), rgba(59,130,246,0.3));">🕹</div>
           <div class="app-info">
-            <h2 class="app-title">Snake Live V2</h2>
-            <p class="app-desc">Versi eksperimen visual 3D Space Station</p>
+            <h2 class="app-title">Snake Legacy</h2>
+            <p class="app-desc">Versi lama (snake.html) — disimpan untuk perbandingan</p>
           </div>
         </div>
 
         <div class="card-body">
           <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
-            Versi alternatif dengan layout visual mandiri, cocok untuk benchmarking rendering Three.js atau running offline.
+            Game default sekarang ada di <b>engine.html</b>. Halaman <b>snake.html</b> tetap tersedia sebagai versi legacy.
           </p>
           <div class="btn-group" style="margin-top: auto;">
-            <a href="/snake-v2.html" target="_blank" class="btn btn-secondary" style="width: 100%;">
-              <span>🕹</span> Buka Snake V2
+            <a href="/snake.html" target="_blank" class="btn btn-secondary" style="width: 100%;">
+              <span>🗂</span> Buka Snake Legacy
             </a>
           </div>
         </div>
@@ -737,6 +806,43 @@
 
   <script>
     const $ = id => document.getElementById(id);
+    const GAME_PATH = '/engine.html';
+    let logHydrated = false;
+    let usernameInitialized = false;
+    let authRedirecting = false;
+
+    function goLogin() {
+      if (authRedirecting) return;
+      authRedirecting = true;
+      const next = location.pathname + location.search;
+      location.replace('/login.html?next=' + encodeURIComponent(next || '/'));
+    }
+
+    async function loadMe() {
+      try {
+        const res = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' });
+        if (res.status === 401) return goLogin();
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.username) $('authUser').textContent = data.username;
+      } catch (e) {}
+    }
+
+    async function logout() {
+      const chip = $('authUser').closest('button');
+      if (chip) chip.disabled = true;
+      try {
+        await fetch('/api/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: '{}'
+        });
+      } catch (e) {}
+      location.replace('/login.html');
+    }
+
+    loadMe();
 
     // Ambil username tersimpan dari localStorage jika ada
     const savedUser = localStorage.getItem('tiktok_username') || '';
@@ -779,63 +885,117 @@
       }
 
       localStorage.setItem('tiktok_username', user);
+
+      const btn = $('btnLaunch');
+      const originalLabel = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span>⏳</span> Menghubungkan...';
+
+      // Buka tab game langsung dari click handler supaya tidak diblokir popup blocker.
+      const gameWin = window.open('about:blank', '_blank');
+      if (gameWin) {
+        try {
+          gameWin.document.title = 'Menghubungkan...';
+          gameWin.document.body.innerHTML =
+            '<div style="font-family:system-ui;background:#070913;color:#38bdf8;height:100vh;display:grid;place-items:center;font-size:20px;font-weight:700;">🐍 Menghubungkan ke TikTok Live...</div>';
+        } catch (e) {}
+      }
+
       showToast(`Menghubungkan ke @${user}...`, '⏳');
 
       try {
         const res = await fetch('/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({ username: user })
         });
-        const data = await res.json();
-        if (data.ok) {
-          showToast(`Berhasil! Membuka layar game...`, '🚀');
-          setTimeout(() => {
-            openGameOverlay();
-          }, 800);
+        if (res.status === 401) {
+          if (gameWin && !gameWin.closed) gameWin.close();
+          return goLogin();
+        }
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          showToast('Bot dimulai! Membuka engine...', '🚀');
+          const url = `${location.origin}${GAME_PATH}`;
+          if (gameWin && !gameWin.closed) {
+            gameWin.location.href = url;
+          } else {
+            location.href = url;
+          }
         } else {
-          showToast(data.error || 'Gagal memulai bot', '❌');
+          if (gameWin && !gameWin.closed) gameWin.close();
+          showToast(data.error || data.message || 'Gagal memulai bot', '❌');
         }
       } catch (err) {
+        if (gameWin && !gameWin.closed) gameWin.close();
         showToast('Gagal menghubungi server backend: ' + err.message, '❌');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalLabel;
       }
     }
 
     // Stop Bot
     async function stopBot() {
       try {
-        const res = await fetch('/api/stop', { method: 'POST' });
-        const data = await res.json();
+        const res = await fetch('/api/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: '{}'
+        });
+        if (res.status === 401) return goLogin();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) throw new Error(data.error || 'Gagal menghentikan bot');
         showToast(data.message || 'Bot dihentikan', '⏹');
       } catch (err) {
         showToast('Error: ' + err.message, '❌');
       }
     }
 
-    // Buka Layar Game
+    // Buka Layar Game (default: engine.html)
     function openGameOverlay() {
-      const url = `${location.protocol}//${location.host}/snake.html`;
+      const url = `${location.origin}${GAME_PATH}`;
       window.open(url, '_blank');
     }
 
-    // Salin Link OBS Browser Source
-    function copyOBSLink() {
-      const url = `${location.protocol}//${location.host}/snake.html`;
-      navigator.clipboard.writeText(url).then(() => {
-        showToast('Link OBS disalin! Atur ukuran 1080x1920', '📋');
-      }).catch(() => {
+    // Salin Link OBS Browser Source (default: engine.html)
+    async function copyOBSLink() {
+      let url = `${location.origin}${GAME_PATH}`;
+      try {
+        const res = await fetch('/api/config', { credentials: 'same-origin', cache: 'no-store' });
+        if (res.status === 401) return goLogin();
+        if (res.ok) {
+          const data = await res.json();
+          if (data.overlay_token) {
+            url += `?token=${encodeURIComponent(data.overlay_token)}`;
+          }
+        }
+      } catch (e) {}
+
+      const done = () => showToast('Link OBS disalin! Atur ukuran 1080x1920', '📋');
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(url).then(done).catch(() => {
+          prompt('Salin link ini untuk OBS Browser Source (1080x1920):', url);
+        });
+      } else {
         prompt('Salin link ini untuk OBS Browser Source (1080x1920):', url);
-      });
+      }
     }
 
     // Tembak Test Gift
     async function sendTestGift(user, gift, count, apples, icon) {
       try {
-        await fetch('/api/test-gift', {
+        const res = await fetch('/api/test-gift', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({ user, gift, count, apples, icon })
         });
+        if (res.status === 401) return goLogin();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) throw new Error(data.error || 'Gagal mengirim gift');
         showToast(`${icon} Gift ${gift} terkirim!`, '🎉');
       } catch (err) {
         showToast('Gagal mengirim gift: ' + err.message, '❌');
@@ -848,24 +1008,44 @@
       sendTestGift(user, 'Custom Gift', 1, apples, '🌟');
     }
 
-    // Log Feed
+    // Log Feed (pakai textContent supaya nama/gift dari TikTok tidak bisa inject HTML)
     function appendLog(user, gift, apples, icon, time) {
       const box = $('logBox');
       const row = document.createElement('div');
       row.className = 'log-entry';
-      row.innerHTML = `<span class="time">[${time || new Date().toLocaleTimeString()}]</span> <span class="user">${user}</span> kirim <span class="gift">${icon || '🎁'} ${gift}</span> (+${apples} apel)`;
+
+      const timeEl = document.createElement('span');
+      timeEl.className = 'time';
+      timeEl.textContent = `[${time || new Date().toLocaleTimeString()}]`;
+      row.appendChild(timeEl);
+      row.appendChild(document.createTextNode(' '));
+
+      const userEl = document.createElement('span');
+      userEl.className = 'user';
+      userEl.textContent = user || 'Seseorang';
+      row.appendChild(userEl);
+      row.appendChild(document.createTextNode(' kirim '));
+
+      const giftEl = document.createElement('span');
+      giftEl.className = 'gift';
+      giftEl.textContent = `${icon || '🎁'} ${gift || 'gift'}`;
+      row.appendChild(giftEl);
+      row.appendChild(document.createTextNode(` (+${apples || 0} apel)`));
+
       box.insertBefore(row, box.firstChild);
       while (box.children.length > 50) box.removeChild(box.lastChild);
     }
 
     function clearLogs() {
+      logHydrated = true;
       $('logBox').innerHTML = '<div class="log-entry"><span class="time">[INFO]</span> Log dibersihkan.</div>';
     }
 
     // Sync Status dari REST API
     async function pollStatus() {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch('/api/status', { credentials: 'same-origin', cache: 'no-store' });
+        if (res.status === 401) return goLogin();
         if (!res.ok) throw new Error('Offline');
         const d = await res.json();
 
@@ -874,6 +1054,21 @@
         $('wsCount').textContent = d.ws_clients || 0;
         $('totalGifts').textContent = d.gifts_count || 0;
         $('totalApples').textContent = d.apples_total || 0;
+
+        if (!usernameInitialized) {
+          usernameInitialized = true;
+          if (!$('usernameInput').value && d.username) {
+            $('usernameInput').value = d.username;
+          }
+        }
+
+        if (!logHydrated) {
+          logHydrated = true;
+          const recent = Array.isArray(d.recent_gifts) ? d.recent_gifts : [];
+          if ($('logBox').children.length <= 1) {
+            recent.slice().reverse().forEach(g => appendLog(g.user, g.gift, g.apples, g.icon, g.time));
+          }
+        }
 
         if (d.running) {
           if (d.connected) {
@@ -898,17 +1093,29 @@
     pollStatus();
 
     // Koneksikan juga ke WebSocket langsung untuk Log Feed instan
+    function feedWsUrl() {
+      const params = new URLSearchParams(location.search);
+      const directPort = params.get('ws') || ((location.protocol === 'http:' && location.port === '8001') ? '8766' : '');
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return directPort
+        ? `${proto}//${location.hostname}:${directPort}`
+        : `${proto}//${location.host}/ws`;
+    }
+
     (function connectFeedWs() {
       try {
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${proto}//${location.hostname}:${8766}`);
+        const ws = new WebSocket(feedWsUrl());
         ws.onmessage = e => {
           const p = JSON.parse(e.data);
           if (p.type === 'gift') {
             appendLog(p.user, p.gift, p.apples, p.icon);
           }
         };
-        ws.onclose = () => setTimeout(connectFeedWs, 3000);
+        ws.onclose = (event) => {
+          if (event && event.code === 1008) return goLogin();
+          setTimeout(connectFeedWs, 3000);
+        };
+        ws.onerror = () => ws.close();
       } catch (err) {
         setTimeout(connectFeedWs, 4000);
       }

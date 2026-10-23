@@ -761,7 +761,20 @@ function launch(){const c=freeCell();if(c<0){queue=0;return;}flying.push({c,t:0}
 function gift(user,name,n,icon='🎁'){queue+=n;flash=1;sfx.gift(n);const t=$('toast');t.textContent=`${icon} ${user||'Seseorang'} kirim ${name||'gift'} → +${n} apel!`;t.style.background=n>=100?'linear-gradient(90deg,#ff9f1c,#ff2d95)':n>=30?'#a23bffcc':'#ff2d55cc';t.classList.add('on');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('on'),3200);}
 function newRound(){over=0;$('over').style.display='none';round++;reset();applyTheme(round);queue=0;flying=[];fly.clear();bulges=[];acc=0;spawnT=0;lastEatAt=performance.now();}
 function ui(){$('r').textContent=round;$('l').textContent=snake.length;$('e').textContent=eaten;}
-(function ws(){try{const s=new WebSocket(`ws://localhost:${QS.get('ws')||8766}`);s.onmessage=e=>{const p=JSON.parse(e.data);if(p.type==='gift')gift(p.user,p.gift,p.apples,p.icon);if(p.type==='config'){GIFTS=p.gifts;tiers();}};s.onclose=()=>setTimeout(ws,2500);s.onerror=()=>s.close();}catch(e){setTimeout(ws,3000);}})();
+(function ws(){
+  const qsPort=QS.get('ws');
+  const directPort=qsPort||((location.protocol==='http:'&&location.port==='8001')?'8766':'');
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  const base=directPort?`${proto}//${location.hostname}:${directPort}`:`${proto}//${location.host}/ws`;
+  const token=QS.get('token')||'';
+  const url=token?`${base}?token=${encodeURIComponent(token)}`:base;
+  try{
+    const s=new WebSocket(url);
+    s.onmessage=e=>{const p=JSON.parse(e.data);if(p.type==='gift')gift(p.user,p.gift,p.apples,p.icon);if(p.type==='config'){GIFTS=p.gifts;tiers();}};
+    s.onclose=e=>{if(e&&e.code===1008)return;setTimeout(ws,2500);};
+    s.onerror=()=>s.close();
+  }catch(e){setTimeout(ws,3000);}
+})();
 /* ===== SHORTCUT SIMULASI GIFT (tanpa TikTok) =====
    Ctrl+1 … Ctrl+9 = gift ke-1..9, Ctrl+0 = gift ke-10, Ctrl+N = RONDE BARU.
    Angka 1-4 tanpa Ctrl juga masih berfungsi (tes cepat ala lama).            */
