@@ -433,19 +433,35 @@ BGM_VOLUME = 0.28
 BGM_VOLUME_DUCK = 0.09
 BGM_DUCK_DETIK = 2.6
 
+# Enam gift resmi: nama harus sama dengan nama gift TikTok.
 GIFTS = {
-    "Rose": ("🌹", 5),
+    "Rose": ("🌹", 1),
+    "Ice Cream Cone": ("🍦", 5),
     "Finger Heart": ("🫰", 5),
-    "Ice Cream Cone": ("🍦", 8),
-    "Hand Hearts": ("🤲", 20),
-    "Doughnut": ("🍩", 30),
-    "Swan": ("🦢", 40),
-    "Corgi": ("🐶", 50),
-    "Money Gun": ("🔫", 70),
-    "Galaxy": ("🌌", 150),
-    "Lion": ("🦁", 300),
-    "TikTok Universe": ("🪐", 500),
+    "Hand Heart": ("🤲", 10),
+    "Cap and Glasses": ("🧢", 20),
+    "Donut": ("🍩", 30),
 }
+
+# Alias untuk nama lama / variasi dari TikTok atau input manual.
+GIFT_ALIASES = {
+    "hand hearts": "Hand Heart",
+    "doughnut": "Donut",
+    "cap & glasses": "Cap and Glasses",
+    "topi dan kacamata": "Cap and Glasses",
+    "topi & kacamata": "Cap and Glasses",
+    "mawar": "Rose",
+    "es krim": "Ice Cream Cone",
+    "ice cream": "Ice Cream Cone",
+    "tangan hati": "Hand Heart",
+}
+_GIFT_BY_LOWER = {nama.casefold(): nama for nama in GIFTS}
+
+
+def kanonik_gift(nama):
+    nama = str(nama or "").strip()
+    kunci = nama.casefold()
+    return _GIFT_BY_LOWER.get(kunci) or GIFT_ALIASES.get(kunci) or nama
 
 # ================== GLOBAL STATE ==================
 penghubung = set()
@@ -555,13 +571,8 @@ async def putar_musik_latar():
 
 # ---------------- WebSocket & Broadcast ----------------
 def apel_untuk(gift_name, diamond_count=1):
-    if gift_name in GIFTS:
-        return GIFTS[gift_name][1]
-    k = diamond_count or 1
-    for batas, apel in [(20, 5), (50, 10), (100, 20), (500, 60), (1000, 100)]:
-        if k < batas:
-            return apel
-    return 200
+    item = GIFTS.get(kanonik_gift(gift_name))
+    return item[1] if item else 0
 
 
 async def ws_handler(ws):
@@ -642,13 +653,17 @@ async def handle_gift_event(
     apples_override=None,
     icon_override=None,
 ):
+    gift_name = kanonik_gift(gift_name)
+    nama = nama or "Seseorang"
     jumlah = max(1, int(jumlah or 1))
     if apples_override is not None:
         apel = max(0, int(apples_override))
     else:
         apel = apel_untuk(gift_name, diamond_count) * jumlah
+        if apel <= 0:
+            print(f"[GIFT] {nama} -> {gift_name}: diabaikan (bukan gift terdaftar)")
+            return False
     icon = icon_override or GIFTS.get(gift_name, ("🎁", 1))[0]
-    nama = nama or "Seseorang"
     display_gift = f"{jumlah}x {gift_name}" if jumlah > 1 else gift_name
 
     server_state["gifts_count"] += 1
@@ -669,6 +684,7 @@ async def handle_gift_event(
     print(f"[GIFT] {nama} -> {display_gift} = +{apel} apel")
     jadwalkan_duck()
     await kirim({"type": "gift", "user": nama, "gift": display_gift, "apples": apel, "icon": icon})
+    return True
 
 
 # ---------------- TikTok Live Client Lifecycle ----------------
@@ -1253,9 +1269,14 @@ class AppHTTPHandler(SimpleHTTPRequestHandler):
                     ),
                     _loop,
                 )
-                fut.result(timeout=5)
+                accepted = fut.result(timeout=5)
             except Exception as err:
                 return self.send_json({"ok": False, "error": f"Gagal mengirim gift: {err}"}, 503)
+            if accepted is False:
+                return self.send_json(
+                    {"ok": False, "error": f"Gift '{gift_name}' tidak terdaftar. Hanya 6 gift resmi yang diaktifkan."},
+                    400,
+                )
             return self.send_json({"ok": True, "message": f"Gift {gift_name} berhasil disimulasikan!"})
 
         self.send_json({"error": "Endpoint tidak ditemukan"}, 404)

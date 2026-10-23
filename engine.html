@@ -284,7 +284,8 @@ countdown();
 /* ================= SCENE 3D ================= */
 ///// KANVAS LOGIKA 1080 x tinggi dinamis //////
 const CW=1080;let CH=1920;const stage=$('stage');
-const rd=new THREE.WebGLRenderer({antialias:true});rd.setPixelRatio(1);rd.setSize(CW,CH,false);stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
+const LOW_POWER=Math.min(window.innerWidth,window.innerHeight)<=600;
+const rd=new THREE.WebGLRenderer({antialias:!LOW_POWER,powerPreference:'high-performance'});rd.setPixelRatio(1);rd.setSize(CW,CH,false);stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
 const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(48,CW/CH,.1,700);sc.fog=new THREE.Fog(0x070a18,90,330);
 // Area aman kanvas: HUD di atas, kartu gift di bawah → papan dipaskan ke ruang di antaranya
 const UI={top:.06,bottom:.175,side:.022},FILL=.96;   // FILL<1 = papan di-zoom sedikit lebih besar
@@ -296,8 +297,8 @@ function placeCam(d){cam.position.set(0,d*.82,d*.57+1);cam.lookAt(0,0,-H*.04);ca
 // Board tetap proporsional karena kamera memakai aspek viewport, bukan ditarik/stretch.
 function fitStage(){
   const vw=Math.max(1,window.innerWidth||1),vh=Math.max(1,window.innerHeight||1);
-  // Di HP: tampilkan panggung 90% viewport agar tidak terlalu penuh/terasa kebesaran.
-  const mobile=vw<=600,fit=mobile?.9:1;
+  // Layar kecil (HP, termasuk landscape): panggung 85% viewport agar tidak terasa kebesaran.
+  const mobile=Math.min(vw,vh)<=600,fit=mobile?.85:1;
   const safeW=vw*fit,safeH=vh*fit;
   const s=safeW/CW;
   CH=safeH/s;
@@ -305,8 +306,8 @@ function fitStage(){
   stage.style.height=CH+'px';
   stage.style.transform=`translate(-50%,-50%) scale(${s})`;
   // Resolusi buffer mengikuti devicePixelRatio setelah skala panggung.
-  // Di HP dibatasi 0.8x pixel fisik supaya FPS stabil di GPU kelas menengah.
-  const renderScale=Math.min(mobile?.8:2,(window.devicePixelRatio||1)*s);
+  // Di HP dibatasi 0.7x pixel fisik supaya FPS stabil di GPU kelas menengah.
+  const renderScale=Math.min(mobile?.7:2,(window.devicePixelRatio||1)*s);
   rd.setPixelRatio(renderScale);
   rd.setSize(CW,CH,false);
 }
@@ -328,7 +329,7 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.2);
 sun.position.set(-15, 32, 20);
 sun.castShadow = true;
 Object.assign(sun.shadow.camera, {left: -22, right: 22, top: 22, bottom: -22});
-sun.shadow.mapSize.set(window.innerWidth<=600?1024:2048, window.innerWidth<=600?1024:2048);
+sun.shadow.mapSize.set(LOW_POWER?512:2048, LOW_POWER?512:2048);
 sc.add(sun);
 
 // Earth-shine: pantulan cahaya biru Bumi dari bawah ke arah stasiun
@@ -845,7 +846,7 @@ const HEADC = THEMES.map(t => t.head);
 
 /* ================= ALUR PERMAINAN ================= */
 let queue=0,flying=[],fly=new Set(),acc=0,over=0,spawnT=0,flash=0,jaw=0,bulges=[],bulgeMid=18;const BASE=2;
-let GIFTS=[["🌹","Rose",5],["🫰","Finger Heart",5],["🍦","Ice Cream Cone",8],["🍩","Doughnut",30],["🤲","Hand Hearts",20],["🦢","Swan",40],["🐶","Corgi",50],["🌌","Galaxy",150],["🦁","Lion",300]];
+let GIFTS=[["🌹","Rose",1],["🍦","Ice Cream Cone",5],["🫰","Finger Heart",5],["🤲","Hand Heart",10],["🧢","Cap and Glasses",20],["🍩","Donut",30]];
 function tiers(){$('tiers').innerHTML=`<i>Gift → 🍎</i>`+GIFTS.map(g=>`<span>${g[0]} <b>${g[2]}</b></span>`).join('');}tiers();
 $('n').textContent=N;reset();applyTheme(round);
 /* Hanya pilih sel kosong yang masih bisa DICAPAI kepala (supaya apel tidak muncul
@@ -874,8 +875,8 @@ function ui(){$('r').textContent=round;$('l').textContent=snake.length;$('e').te
   }catch(e){setTimeout(ws,3000);}
 })();
 /* ===== SHORTCUT SIMULASI GIFT (tanpa TikTok) =====
-   Ctrl+1 … Ctrl+9 = gift ke-1..9, Ctrl+0 = gift ke-10, Ctrl+N = RONDE BARU.
-   Angka 1-4 tanpa Ctrl juga masih berfungsi (tes cepat ala lama).            */
+   Ctrl+1 … Ctrl+6 = gift ke-1..6, Ctrl+N = RONDE BARU.
+   Angka 1-6 tanpa Ctrl juga berfungsi.                                        */
 function giftKe(i){
   const g=GIFTS[i];
   if(!g)return;
@@ -887,14 +888,14 @@ addEventListener('keydown',e=>{
     if(m){
       e.preventDefault();
       const d=+m[1];
-      giftKe(d===0?9:d-1);              // Ctrl+0 → gift ke-10
+      if(d>=1&&d<=GIFTS.length)giftKe(d-1); // Ctrl+1..6
       return;
     }
     if(e.key==='n'||e.key==='N'||e.key==='r'||e.key==='R'){e.preventDefault();newRound();return;}
     if(e.key==='+'||e.key==='='){e.preventDefault();for(const g of GIFTS)gift('Tes',g[1],g[2],g[0]);return;}
   }
-  const k={1:['Rose',5,'🌹'],2:['Doughnut',30,'🍩'],3:['Corgi',50,'🐶'],4:['Galaxy',150,'🌌']}[e.key];
-  if(k)gift('Tes',k[0],k[1],k[2]);
+  const n=+e.key;
+  if(n>=1&&n<=GIFTS.length)giftKe(n-1);
   if(e.key==='r'||e.key==='R')newRound();
 });
 

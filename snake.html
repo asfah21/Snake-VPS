@@ -951,7 +951,7 @@ const HEADC = THEMES.map(t => t.head);
 
 /* ================= ALUR PERMAINAN ================= */
 let queue=0,flying=[],fly=new Set(),acc=0,over=0,spawnT=0,flash=0,jaw=0,bulges=[],bulgeMid=18;const BASE=2;
-let GIFTS=[["🌹","Rose",5],["🫰","Finger Heart",5],["🍦","Ice Cream Cone",8],["🍩","Doughnut",30],["🤲","Hand Hearts",20],["🦢","Swan",40],["🐶","Corgi",50],["🌌","Galaxy",150],["🦁","Lion",300]];
+let GIFTS=[["🌹","Rose",1],["🍦","Ice Cream Cone",5],["🫰","Finger Heart",5],["🤲","Hand Heart",10],["🧢","Cap and Glasses",20],["🍩","Donut",30]];
 function tiers(){$('tiers').innerHTML=`<i>Gift → 🍎</i>`+GIFTS.map(g=>`<span>${g[0]} <b>${g[2]}</b></span>`).join('');}tiers();
 $('n').textContent=N;reset();applyTheme(round);
 /* Hanya pilih sel kosong yang masih bisa DICAPAI kepala (supaya apel tidak muncul
@@ -980,8 +980,8 @@ function ui(){$('r').textContent=round;$('l').textContent=snake.length;$('e').te
   }catch(e){setTimeout(ws,3000);}
 })();
 /* ===== SHORTCUT SIMULASI GIFT (tanpa TikTok) =====
-   Ctrl+1 … Ctrl+9 = gift ke-1..9, Ctrl+0 = gift ke-10, Ctrl+N = RONDE BARU.
-   Angka 1-4 tanpa Ctrl juga masih berfungsi (tes cepat ala lama).            */
+   Ctrl+1 … Ctrl+6 = gift ke-1..6, Ctrl+N = RONDE BARU.
+   Angka 1-6 tanpa Ctrl juga berfungsi.                                        */
 function giftKe(i){
   const g=GIFTS[i];
   if(!g)return;
@@ -993,14 +993,14 @@ addEventListener('keydown',e=>{
     if(m){
       e.preventDefault();
       const d=+m[1];
-      giftKe(d===0?9:d-1);              // Ctrl+0 → gift ke-10
+      if(d>=1&&d<=GIFTS.length)giftKe(d-1); // Ctrl+1..6
       return;
     }
     if(e.key==='n'||e.key==='N'||e.key==='r'||e.key==='R'){e.preventDefault();newRound();return;}
     if(e.key==='+'||e.key==='='){e.preventDefault();for(const g of GIFTS)gift('Tes',g[1],g[2],g[0]);return;}
   }
-  const k={1:['Rose',5,'🌹'],2:['Doughnut',30,'🍩'],3:['Corgi',50,'🐶'],4:['Galaxy',150,'🌌']}[e.key];
-  if(k)gift('Tes',k[0],k[1],k[2]);
+  const n=+e.key;
+  if(n>=1&&n<=GIFTS.length)giftKe(n-1);
   if(e.key==='r'||e.key==='R')newRound();
 });
 
