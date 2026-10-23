@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TikTok Live Stream Hub - Android Launcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #070913;
+      --bg-card: rgba(15, 23, 42, 0.72);
+      --bg-card-hover: rgba(22, 33, 62, 0.85);
+      --border-card: rgba(56, 189, 248, 0.18);
+      --border-card-hover: rgba(56, 189, 248, 0.45);
+      --accent-cyan: #38bdf8;
+      --accent-pink: #ec4899;
+      --accent-green: #10b981;
+      --accent-yellow: #facc15;
+      --accent-purple: #a855f7;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --glass-blur: blur(20px);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(236, 72, 153, 0.12) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(168, 85, 247, 0.1) 0px, transparent 50%);
+      background-attachment: fixed;
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* ===== ANDROID STATUS BAR ===== */
+    .status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 24px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--text-muted);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      background: rgba(7, 9, 19, 0.8);
+      backdrop-filter: var(--glass-blur);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .status-bar .left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-bar .right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .pill-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: var(--accent-cyan);
+    }
+
+    .pill-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 10px var(--accent-green);
+      animation: pulseDot 2s infinite ease-in-out;
+    }
+
+    .pill-dot.offline {
+      background: #ef4444;
+      box-shadow: 0 0 10px #ef4444;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* ===== MAIN CONTAINER ===== */
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 24px 20px 100px;
+      width: 100%;
+      flex: 1;
+    }
+
+    /* ===== ANDROID CLOCK & WEATHER WIDGET ===== */
+    .widget-clock {
+      text-align: center;
+      margin: 20px 0 36px;
+    }
+
+    .widget-time {
+      font-size: clamp(54px, 8vw, 84px);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      background: linear-gradient(180deg, #ffffff 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    }
+
+    .widget-date {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-top: 8px;
+    }
+
+    .widget-subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ===== APP GRID (ANDROID CARDS) ===== */
+    .app-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 22px;
+      margin-bottom: 24px;
+    }
+
+    .app-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 28px;
+      padding: 26px;
+      backdrop-filter: var(--glass-blur);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .app-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--card-accent, var(--accent-cyan)), transparent);
+      opacity: 0.7;
+    }
+
+    .app-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-card-hover);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), 0 0 24px rgba(56, 189, 248, 0.15);
+      background: var(--bg-card-hover);
+    }
+
+    /* CARD HEADER & ICON */
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .app-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(236, 72, 153, 0.25));
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+      flex-shrink: 0;
+      transition: transform 0.3s ease;
+    }
+
+    .app-card:hover .app-icon {
+      transform: scale(1.08) rotate(-4deg);
+    }
+
+    .app-info {
+      flex: 1;
+    }
+
+    .app-title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+
+    .app-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+
+    /* CARD BODY & FORMS */
+    .card-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .input-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-prefix {
+      position: absolute;
+      left: 14px;
+      color: var(--accent-cyan);
+      font-weight: 800;
+      font-size: 16px;
+      pointer-events: none;
+    }
+
+    .text-input {
+      width: 100%;
+      background: rgba(7, 12, 24, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      border-radius: 14px;
+      padding: 12px 14px 12px 34px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .text-input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+    }
+
+    /* ACTION BUTTONS */
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 18px;
+      border-radius: 14px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      text-decoration: none;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .btn:active {
+      transform: scale(0.96);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      color: #030712;
+      box-shadow: 0 6px 18px rgba(2, 132, 199, 0.4);
+      flex: 1;
+      min-width: 140px;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #0ea5e9, #7dd3fc);
+      box-shadow: 0 8px 24px rgba(2, 132, 199, 0.6);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #f87171;
+    }
+
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.3);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #e2e8f0;
+      flex: 1;
+      min-width: 130px;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: #fff;
+    }
+
+    /* TELEMETRY & STATS PILLS */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .stat-box {
+      background: rgba(6, 12, 24, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .stat-val {
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+      margin-top: 2px;
+    }
+
+    /* GIFT QUICK LAUNCH CHIPS */
+    .chip-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 12px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #e2e8f0;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .chip-btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent-cyan);
+      transform: translateY(-2px);
+    }
+
+    /* REAL-TIME LOG FEED */
+    .log-box {
+      background: rgba(2, 6, 15, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      padding: 12px;
+      height: 180px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #a5f3fc;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .log-entry {
+      padding: 2px 4px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .log-entry .time {
+      color: #64748b;
+      margin-right: 6px;
+    }
+
+    .log-entry .user {
+      color: #f472b6;
+      font-weight: 700;
+    }
+
+    .log-entry .gift {
+      color: #fde047;
+      font-weight: 700;
+    }
+
+    /* ===== ANDROID BOTTOM DOCK ===== */
+    .bottom-dock {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 32px;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.8), 0 0 24px rgba(56, 189, 248, 0.2);
+      backdrop-filter: var(--glass-blur);
+      z-index: 100;
+    }
+
+    .dock-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 20px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+    }
+
+    .dock-item .dock-icon {
+      font-size: 22px;
+      transition: transform 0.2s ease;
+    }
+
+    .dock-item:hover, .dock-item.active {
+      color: var(--accent-cyan);
+      background: rgba(56, 189, 248, 0.12);
+    }
+
+    .dock-item:hover .dock-icon {
+      transform: translateY(-4px) scale(1.15);
+    }
+
+    /* ===== TOAST NOTIFICATION ===== */
+    #toast {
+      position: fixed;
+      top: 30px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-30px);
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid var(--accent-cyan);
+      color: #fff;
+      padding: 14px 28px;
+      border-radius: 20px;
+      font-size: 15px;
+      font-weight: 700;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 24px rgba(56, 189, 248, 0.3);
+      backdrop-filter: var(--glass-blur);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 999;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 640px) {
+      .app-grid {
+        grid-template-columns: 1fr;
+      }
+      .bottom-dock {
+        width: 90%;
+        justify-content: space-around;
+        padding: 8px 12px;
+      }
+      .dock-item span:last-child {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ANDROID TOP STATUS BAR -->
+  <header class="status-bar">
+    <div class="left">
+      <span id="carrierName">⚡ VPS Cloud Hub</span>
+      <span class="pill-badge" id="hostBadge">
+        <span class="pill-dot" id="serverDot"></span>
+        <span id="serverStatusText">Online</span>
+      </span>
+    </div>
+    <div class="right">
+      <span title="Koneksi Browser Aktif">👥 <b id="wsCount">0</b> Web</span>
+      <span id="barClock">09:50</span>
+      <span>🔋 100%</span>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- WIDGET CLOCK ALA ANDROID -->
+    <section class="widget-clock">
+      <div class="widget-time" id="bigTime">09:50</div>
+      <div class="widget-date" id="bigDate">JUMAT, 23 OKTOBER 2026</div>
+      <div class="widget-subtitle">TikTok Live Interactive Stream System & Overlay Hub</div>
+    </section>
+
+    <!-- ANDROID CARD MENU GRID -->
+    <section class="app-grid">
+
+      <!-- CARD 1: SNAKE LIVE INTERACTIVE (UTAMA) -->
+      <article class="app-card" style="--card-accent: #38bdf8;">
+        <div class="card-header">
+          <div class="app-icon">🐍</div>
+          <div class="app-info">
+            <h2 class="app-title">Snake Live TikTok</h2>
+            <p class="app-desc">Game Ular 3D Interaktif via Gift TikTok Live</p>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="input-group">
+            <label class="input-label" for="usernameInput">Akun TikTok Target (Live)</label>
+            <div class="input-wrapper">
+              <span class="input-prefix">@</span>
+              <input type="text" id="usernameInput" class="text-input" placeholder="contoh: nama_akun_kamu" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+
+          <div class="stats-row">
+            <div class="stat-box">
+              <div class="stat-label">Status Bot</div>
+              <div class="stat-val" id="botStatusPill" style="font-size: 14px; color: #38bdf8;">Standby</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Gift Masuk</div>
+              <div class="stat-val" id="totalGifts">0</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Total Apel</div>
+              <div class="stat-val" id="totalApples">0</div>
+            </div>
+          </div>
+
+          <div class="btn-group">
+            <button class="btn btn-primary" id="btnLaunch" onclick="launchSnakeApp()">
+              <span>🚀</span> Jalankan & Buka Game
+            </button>
+            <button class="btn btn-danger" id="btnStop" onclick="stopBot()">
+              <span>⏹</span> Matikan Bot
+            </button>
+          </div>
+
+          <div class="btn-group">
+            <button class="btn btn-secondary" onclick="openGameOverlay()">
+              <span>📺</span> Buka Layar Game Saja
+            </button>
+            <button class="btn btn-secondary" onclick="copyOBSLink()">
+              <span>📋</span> Salin Link OBS (1080x1920)
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <!-- CARD 2: QUICK GIFT SIMULATOR -->
+      <article class="app-card" style="--card-accent: #ec4899;">
+        <div class="card-header">
+          <div class="app-icon" style="background: linear-gradient(135deg, rgba(236,72,153,0.3), rgba(249,115,22,0.3));">🎁</div>
+          <div class="app-info">
+            <h2 class="app-title">Gift Simulator</h2>
+            <p class="app-desc">Uji coba animasi ular & gift tanpa harus buka TikTok</p>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <label class="input-label">Klik untuk tembak gift langsung:</label>
+          <div class="chip-container">
+            <button class="chip-btn" onclick="sendTestGift('Tester', 'Rose', 1, 5, '🌹')">🌹 Rose (+5)</button>
+            <button class="chip-btn" onclick="sendTestGift('Sultan', 'Finger Heart', 1, 5, '🫰')">🫰 Heart (+5)</button>
+            <button class="chip-btn" onclick="sendTestGift('Juragan', 'Doughnut', 1, 30, '🍩')">🍩 Doughnut (+30)</button>
+            <button class="chip-btn" onclick="sendTestGift('Whale99', 'Corgi', 1, 50, '🐶')">🐶 Corgi (+50)</button>
+            <button class="chip-btn" onclick="sendTestGift('LordGamer', 'Galaxy', 1, 150, '🌌')">🌌 Galaxy (+150)</button>
+            <button class="chip-btn" onclick="sendTestGift('SuperFan', 'TikTok Universe', 1, 500, '🪐')">🪐 Universe (+500)</button>
+          </div>
+
+          <div class="input-group" style="margin-top: 8px;">
+            <label class="input-label">Custom Gift Test</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="customUser" class="text-input" style="padding-left: 12px; width: 60%;" placeholder="Nama Donatur">
+              <input type="number" id="customApples" class="text-input" style="padding-left: 12px; width: 40%;" placeholder="Jumlah Apel" value="25">
+            </div>
+            <button class="btn btn-secondary" style="margin-top: 6px;" onclick="sendCustomTestGift()">
+              <span>🎯</span> Tembak Custom Gift
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <!-- CARD 3: REAL-TIME FEED LOG -->
+      <article class="app-card" style="--card-accent: #10b981;">
+        <div class="card-header">
+          <div class="app-icon" style="background: linear-gradient(135deg, rgba(16,185,129,0.3), rgba(6,182,212,0.3));">📜</div>
+          <div class="app-info">
+            <h2 class="app-title">Live Gift Feed</h2>
+            <p class="app-desc">Monitor riwayat gift yang diterima secara real-time</p>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="log-box" id="logBox">
+            <div class="log-entry"><span class="time">[INIT]</span> Menunggu gift pertama...</div>
+          </div>
+          <button class="btn btn-secondary" onclick="clearLogs()">
+            <span>🗑</span> Bersihkan Log
+          </button>
+        </div>
+      </article>
+
+      <!-- CARD 4: SNAKE V2 (SIMULATION LAB) -->
+      <article class="app-card" style="--card-accent: #a855f7;">
+        <div class="card-header">
+          <div class="app-icon" style="background: linear-gradient(135deg, rgba(168,85,247,0.3), rgba(59,130,246,0.3));">🎮</div>
+          <div class="app-info">
+            <h2 class="app-title">Snake Live V2</h2>
+            <p class="app-desc">Versi eksperimen visual 3D Space Station</p>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+            Versi alternatif dengan layout visual mandiri, cocok untuk benchmarking rendering Three.js atau running offline.
+          </p>
+          <div class="btn-group" style="margin-top: auto;">
+            <a href="/snake-v2.html" target="_blank" class="btn btn-secondary" style="width: 100%;">
+              <span>🕹</span> Buka Snake V2
+            </a>
+          </div>
+        </div>
+      </article>
+
+    </section>
+  </main>
+
+  <!-- ANDROID BOTTOM FLOATING DOCK -->
+  <nav class="bottom-dock">
+    <button class="dock-item active" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
+      <span class="dock-icon">🏠</span>
+      <span>Home</span>
+    </button>
+    <button class="dock-item" onclick="openGameOverlay()">
+      <span class="dock-icon">🐍</span>
+      <span>Game</span>
+    </button>
+    <button class="dock-item" onclick="sendTestGift('DockUser', 'Rose', 1, 5, '🌹')">
+      <span class="dock-icon">🌹</span>
+      <span>Tes Gift</span>
+    </button>
+    <button class="dock-item" onclick="copyOBSLink()">
+      <span class="dock-icon">🎥</span>
+      <span>OBS Link</span>
+    </button>
+  </nav>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast">
+    <span id="toastIcon">✨</span>
+    <span id="toastMsg">Notifikasi</span>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+
+    // Ambil username tersimpan dari localStorage jika ada
+    const savedUser = localStorage.getItem('tiktok_username') || '';
+    if (savedUser) $('usernameInput').value = savedUser;
+
+    // Toast Manager
+    let toastTimer;
+    function showToast(msg, icon = '✨') {
+      const t = $('toast');
+      $('toastMsg').textContent = msg;
+      $('toastIcon').textContent = icon;
+      t.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // Jam Digital
+    function updateClock() {
+      const now = new Date();
+      const jam = String(now.getHours()).padStart(2, '0');
+      const menit = String(now.getMinutes()).padStart(2, '0');
+      const timeStr = `${jam}:${menit}`;
+
+      $('bigTime').textContent = timeStr;
+      $('barClock').textContent = timeStr;
+
+      const opt = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+      $('bigDate').textContent = now.toLocaleDateString('id-ID', opt).toUpperCase();
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Launch & Start Snake Bot
+    async function launchSnakeApp() {
+      const user = $('usernameInput').value.trim().replace(/^@/, '');
+      if (!user) {
+        showToast('Masukkan username akun TikTok kamu!', '⚠️');
+        $('usernameInput').focus();
+        return;
+      }
+
+      localStorage.setItem('tiktok_username', user);
+      showToast(`Menghubungkan ke @${user}...`, '⏳');
+
+      try {
+        const res = await fetch('/api/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast(`Berhasil! Membuka layar game...`, '🚀');
+          setTimeout(() => {
+            openGameOverlay();
+          }, 800);
+        } else {
+          showToast(data.error || 'Gagal memulai bot', '❌');
+        }
+      } catch (err) {
+        showToast('Gagal menghubungi server backend: ' + err.message, '❌');
+      }
+    }
+
+    // Stop Bot
+    async function stopBot() {
+      try {
+        const res = await fetch('/api/stop', { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message || 'Bot dihentikan', '⏹');
+      } catch (err) {
+        showToast('Error: ' + err.message, '❌');
+      }
+    }
+
+    // Buka Layar Game
+    function openGameOverlay() {
+      const url = `${location.protocol}//${location.host}/snake.html`;
+      window.open(url, '_blank');
+    }
+
+    // Salin Link OBS Browser Source
+    function copyOBSLink() {
+      const url = `${location.protocol}//${location.host}/snake.html`;
+      navigator.clipboard.writeText(url).then(() => {
+        showToast('Link OBS disalin! Atur ukuran 1080x1920', '📋');
+      }).catch(() => {
+        prompt('Salin link ini untuk OBS Browser Source (1080x1920):', url);
+      });
+    }
+
+    // Tembak Test Gift
+    async function sendTestGift(user, gift, count, apples, icon) {
+      try {
+        await fetch('/api/test-gift', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user, gift, count, apples, icon })
+        });
+        showToast(`${icon} Gift ${gift} terkirim!`, '🎉');
+      } catch (err) {
+        showToast('Gagal mengirim gift: ' + err.message, '❌');
+      }
+    }
+
+    function sendCustomTestGift() {
+      const user = $('customUser').value.trim() || 'Tester';
+      const apples = parseInt($('customApples').value) || 20;
+      sendTestGift(user, 'Custom Gift', 1, apples, '🌟');
+    }
+
+    // Log Feed
+    function appendLog(user, gift, apples, icon, time) {
+      const box = $('logBox');
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      row.innerHTML = `<span class="time">[${time || new Date().toLocaleTimeString()}]</span> <span class="user">${user}</span> kirim <span class="gift">${icon || '🎁'} ${gift}</span> (+${apples} apel)`;
+      box.insertBefore(row, box.firstChild);
+      while (box.children.length > 50) box.removeChild(box.lastChild);
+    }
+
+    function clearLogs() {
+      $('logBox').innerHTML = '<div class="log-entry"><span class="time">[INFO]</span> Log dibersihkan.</div>';
+    }
+
+    // Sync Status dari REST API
+    async function pollStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) throw new Error('Offline');
+        const d = await res.json();
+
+        $('serverDot').className = 'pill-dot';
+        $('serverStatusText').textContent = 'Online';
+        $('wsCount').textContent = d.ws_clients || 0;
+        $('totalGifts').textContent = d.gifts_count || 0;
+        $('totalApples').textContent = d.apples_total || 0;
+
+        if (d.running) {
+          if (d.connected) {
+            $('botStatusPill').textContent = '🟢 Live @' + d.username;
+            $('botStatusPill').style.color = '#10b981';
+          } else {
+            $('botStatusPill').textContent = '🟡 Menghubungkan';
+            $('botStatusPill').style.color = '#facc15';
+          }
+        } else {
+          $('botStatusPill').textContent = 'Standby';
+          $('botStatusPill').style.color = '#38bdf8';
+        }
+      } catch (e) {
+        $('serverDot').className = 'pill-dot offline';
+        $('serverStatusText').textContent = 'Disconnect';
+        $('botStatusPill').textContent = 'Server Offline';
+        $('botStatusPill').style.color = '#ef4444';
+      }
+    }
+    setInterval(pollStatus, 3000);
+    pollStatus();
+
+    // Koneksikan juga ke WebSocket langsung untuk Log Feed instan
+    (function connectFeedWs() {
+      try {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${proto}//${location.hostname}:${8766}`);
+        ws.onmessage = e => {
+          const p = JSON.parse(e.data);
+          if (p.type === 'gift') {
+            appendLog(p.user, p.gift, p.apples, p.icon);
+          }
+        };
+        ws.onclose = () => setTimeout(connectFeedWs, 3000);
+      } catch (err) {
+        setTimeout(connectFeedWs, 4000);
+      }
+    })();
+  </script>
+</body>
+</html>

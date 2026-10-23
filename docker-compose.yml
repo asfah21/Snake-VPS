@@ -1,0 +1,16 @@
+services:
+  snake-live:
+    build: .
+    container_name: snake-live-hub
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+      - "8766:8766"
+    volumes:
+      - ./mp3:/app/mp3
+    environment:
+      - PORT=8001
+      - WS_PORT=8766
+      - HOST=0.0.0.0
+      - SDL_AUDIODRIVER=dummy
+      - DEFAULT_USERNAME=

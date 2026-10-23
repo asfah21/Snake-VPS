@@ -1,0 +1,1007 @@
+<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Snake Live 3D</title>
+<style>
+html,body{margin:0;height:100%;background:#02040a;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#fff}
+/* ===== PANGGUNG TETAP 1080x1920 (portrait TikTok Live) ===== */
+#stage{position:absolute;left:50%;top:50%;width:1080px;height:1920px;transform-origin:50% 50%;transform:translate(-50%,-50%);background:#02040a;overflow:hidden}
+#stage canvas{display:block;width:1080px;height:1920px}
+.box{position:absolute;background:rgba(7,14,28,0.72);border:1px solid rgba(56,189,248,0.25);border-radius:24px;padding:14px 26px;font-weight:800;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 16px 48px rgba(0,0,0,0.75),inset 0 1px 0 rgba(255,255,255,0.15)}
+/* HUD Telemetri ISS di tengah atas */
+#hud{top:36px;left:50%;transform:translateX(-50%);display:flex;align-items:center;padding:12px 14px;border-radius:30px;white-space:nowrap;background:linear-gradient(180deg,rgba(11,23,45,0.85) 0%,rgba(6,12,24,0.7) 100%);border:1px solid rgba(56,189,248,0.35);box-shadow:0 16px 40px rgba(0,0,0,0.8),0 0 30px rgba(14,165,233,0.15),inset 0 1px 1px rgba(255,255,255,0.2)}
+#hud .stat{display:flex;align-items:center;gap:14px;padding:2px 28px;position:relative}
+#hud .stat+.stat{border-left:1px solid rgba(255,255,255,0.14)}
+#hud .ic{font-size:38px;line-height:1;filter:drop-shadow(0 0 12px rgba(56,189,248,0.45))}
+#hud .tx{display:flex;flex-direction:column;line-height:1.05}
+#hud small{font-size:15px;letter-spacing:.22em;text-transform:uppercase;color:rgba(186,230,253,0.75);font-weight:700}
+#hud b{font-size:36px;font-weight:900;letter-spacing:-.02em;color:#ffe066;text-shadow:0 0 20px rgba(255,204,0,0.5)}
+#hud em{font-style:normal;font-size:20px;opacity:.55;font-weight:600}
+#hud .val{display:flex;align-items:baseline;gap:4px}
+#hud .stat:first-child b{color:#38bdf8;text-shadow:0 0 20px rgba(56,189,248,0.65)}
+#hud .stat:last-child b{color:#ff4365;text-shadow:0 0 20px rgba(255,67,101,0.65)}
+/* Kartu daftar gift ISS Module: di bawah papan */
+#tiers{left:50%;bottom:128px;transform:translateX(-50%);width:1010px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:12px 14px;font-size:26px;max-height:420px;overflow:hidden;border-radius:24px;border:1px solid rgba(56,189,248,0.2);background:rgba(6,12,24,0.65)}
+#tiers span{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:88px;background:rgba(15,28,52,0.65);border:1px solid rgba(56,189,248,0.28);border-radius:16px;padding:8px 18px;white-space:nowrap;line-height:1.4;box-shadow:inset 0 1px 0 rgba(255,255,255,0.1)}
+#tiers span b{color:#38bdf8;text-shadow:0 0 12px rgba(56,189,248,0.5)}
+#tiers i{font-style:normal;letter-spacing:.16em;color:rgba(186,230,253,0.85);font-size:.7em;text-transform:uppercase;font-weight:800;margin-right:4px}
+#toast{left:50%;top:210px;transform:translate(-50%,-20px);opacity:0;transition:.35s;background:linear-gradient(90deg,rgba(14,165,233,0.9),rgba(236,72,153,0.9));text-align:center;font-size:32px;font-weight:800;border-radius:22px;max-width:940px;box-shadow:0 12px 35px rgba(0,0,0,0.8),0 0 30px rgba(56,189,248,0.35);border:1px solid rgba(255,255,255,0.3)}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#over{inset:0;display:none;place-items:center;background:rgba(2,6,15,0.88);text-align:center;border-radius:0;border:0;font-size:92px;backdrop-filter:blur(20px)}
+#over small{font-size:.36em;opacity:.8;color:#38bdf8}
+#start{inset:0;display:grid;place-items:center;background:radial-gradient(circle at 50% 50%,rgba(6,15,35,0.7),rgba(2,4,10,0.96));cursor:default;border-radius:0;border:0;text-align:center;padding:0;transition:opacity .5s;opacity:1}
+#start.off{opacity:0}
+#cdwrap{position:relative;display:grid;place-items:center;width:520px;height:520px}
+#cdring{position:absolute;inset:0;border-radius:50%;border:8px solid rgba(56,189,248,0.65);box-shadow:0 0 90px rgba(56,189,248,0.5),inset 0 0 90px rgba(236,72,153,0.4);animation:ringpop 1s ease-out both}
+#cd{position:relative;font-size:280px;font-weight:900;line-height:1;color:#fff;text-shadow:0 0 50px #38bdf8,0 0 120px #0284c7,0 8px 0 rgba(0,0,0,0.8);animation:cdpop 1s cubic-bezier(.2,.9,.3,1) both}
+@keyframes cdpop{0%{transform:scale(.5);opacity:0}22%{transform:scale(1.08);opacity:1}72%{transform:scale(1);opacity:1}100%{transform:scale(1.15);opacity:0}}
+@keyframes ringpop{0%{transform:scale(.72);opacity:0}25%{transform:scale(1);opacity:.95}100%{transform:scale(1.3);opacity:0}}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+</head><body>
+<div id="stage">
+<div id="hud" class="box"><div class="stat" title="Ronde"><span class="ic">🏁</span><span class="tx"><small>Ronde</small><span class="val"><b id="r">1</b></span></span></div><div class="stat" title="Panjang ular"><span class="ic">📏</span><span class="tx"><small>Panjang</small><span class="val"><b id="l">3</b><em>/<span id="n"></span></em></span></span></div><div class="stat" title="Apel dimakan"><span class="ic">🍎</span><span class="tx"><small>Dimakan</small><span class="val"><b id="e">0</b></span></span></div></div>
+<div id="tiers" class="box"></div>
+<div id="toast" class="box"></div>
+<div id="over" class="box"><div>🏆 PAPAN PENUH!<br><small>Ronde baru dimulai…</small></div></div>
+<div id="start" class="box"><div id="cdwrap"><div id="cdring"></div><b id="cd">3</b></div></div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+const QS=new URLSearchParams(location.search), $=id=>document.getElementById(id);
+
+/* ================= LOGIKA GAME (AI ular: siklus Hamilton + jalan pintas aman) ================= */
+//LOGIC_START
+const PORT=QS.get('layout')?QS.get('layout')==='portrait':true,W=PORT?16:24,H=PORT?26:16,N=W*H, idx=new Int16Array(N), cyc=[];
+document.body.classList.add(PORT?'p':'l');
+for(let x=0;x<W;x++)cyc.push([x,0]);
+for(let r=1;r<H;r++){if(r%2)for(let x=W-1;x>=1;x--)cyc.push([x,r]);else for(let x=1;x<W;x++)cyc.push([x,r]);}
+for(let y=H-1;y>=1;y--)cyc.push([0,y]);
+cyc.forEach((c,i)=>idx[c[1]*W+c[0]]=i);
+const cell=i=>cyc[i][1]*W+cyc[i][0];
+let snake,occ,apples,prev,eaten=0,round=1;
+function reset(){occ=new Uint8Array(N);apples=new Set();snake=[cell(2),cell(1),cell(0)];snake.forEach(c=>occ[c]=1);prev=snake.slice();eaten=0;}
+const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
+const _dist=new Int16Array(N),_first=new Int16Array(N),_q=new Int32Array(N);
+const _parent=new Int32Array(N),_bodyIdx=new Int16Array(N),_vOcc=new Uint8Array(N),_visited=new Uint8Array(N);
+const _tailDist=new Int16Array(N),_pathBuf=new Int32Array(N);
+
+/* BFS standar (digunakan oleh freeCell untuk mencari sel bebas yang terjangkau) */
+function bfs(start,allow){
+  _dist.fill(-1);
+  let head=0,tail=0;_q[tail++]=start;_dist[start]=0;
+  while(head<tail){
+    const c=_q[head++],cx=c%W,cy=(c/W)|0,d1=_dist[c]+1;
+    for(let k=0;k<4;k++){
+      const x=cx+DIRS[k][0],y=cy+DIRS[k][1];
+      if(x<0||y<0||x>=W||y>=H)continue;
+      const m=y*W+x;
+      if(_dist[m]>=0)continue;
+      if(occ[m]&&m!==allow)continue;
+      _dist[m]=d1;
+      _q[tail++]=m;
+    }
+  }
+}
+
+/* BFS Dinamis (Time-Aware): memperhitungkan pergerakan badan dan ekor pada setiap langkah (step t).
+   Segmen ke-k (0=kepala, L-1=ekor) telah kosong jika t >= L - k (atau k >= L - t). */
+function dynamicFindApples(){
+  const head=snake[0],L=snake.length;
+  _bodyIdx.fill(-1);
+  for(let k=0;k<L;k++){
+    const c=snake[k];
+    if(_bodyIdx[c]===-1)_bodyIdx[c]=k;
+  }
+  _dist.fill(-1);
+  _parent.fill(-1);
+  _dist[head]=0;
+  _q[0]=head;
+  let qH=0,qT=1;
+  const found=[];
+  while(qH<qT){
+    const curr=_q[qH++],d=_dist[curr],t=d+1,cx=curr%W,cy=(curr/W)|0;
+    for(let k=0;k<4;k++){
+      const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
+      if(nx<0||ny<0||nx>=W||ny>=H)continue;
+      const m=ny*W+nx;
+      if(curr===head&&L>1&&m===snake[1])continue; // leher
+      if(_dist[m]>=0)continue;
+      const segK=_bodyIdx[m];
+      if(segK>=0&&segK<L-t)continue; // segmen tubuh belum bergeser pada step t
+      _dist[m]=t;
+      _parent[m]=curr;
+      _q[qT++]=m;
+      if(apples.has(m))found.push(m);
+    }
+  }
+  return found;
+}
+
+function getReconstructedPath(target){
+  const head=snake[0];
+  let curr=target,cnt=0;
+  while(curr!==head&&curr>=0&&cnt<N){
+    _pathBuf[cnt++]=curr;
+    curr=_parent[curr];
+  }
+  if(curr!==head)return null;
+  _pathBuf[cnt++]=head;
+  const res=new Int32Array(cnt);
+  for(let i=0;i<cnt;i++)res[i]=_pathBuf[cnt-1-i];
+  return res;
+}
+
+/* Periksa apakah kepala dapat menjangkau ekor pada kondisi virtual */
+function canReachTail(vHead,vTail,vOccMap){
+  if(vHead===vTail)return {reachable:true,dist:0};
+  _tailDist.fill(-1);
+  _tailDist[vHead]=0;
+  _q[0]=vHead;
+  let qH=0,qT=1;
+  while(qH<qT){
+    const curr=_q[qH++],d=_tailDist[curr],cx=curr%W,cy=(curr/W)|0;
+    for(let k=0;k<4;k++){
+      const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
+      if(nx<0||ny<0||nx>=W||ny>=H)continue;
+      const m=ny*W+nx;
+      if(m===vTail)return {reachable:true,dist:d+1};
+      if(_tailDist[m]>=0||vOccMap[m])continue;
+      _tailDist[m]=d+1;
+      _q[qT++]=m;
+    }
+  }
+  return {reachable:false,dist:-1};
+}
+
+/* Hitung luas ruang kosong yang masih terhubung */
+function getFreeSpace(start,vOccMap,allowTail){
+  _visited.fill(0);
+  _visited[start]=1;
+  _q[0]=start;
+  let qH=0,qT=1,cnt=0;
+  while(qH<qT){
+    const curr=_q[qH++],cx=curr%W,cy=(curr/W)|0;
+    for(let k=0;k<4;k++){
+      const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
+      if(nx<0||ny<0||nx>=W||ny>=H)continue;
+      const m=ny*W+nx;
+      if(_visited[m])continue;
+      if(m!==allowTail&&vOccMap[m])continue;
+      _visited[m]=1;
+      _q[qT++]=m;
+      cnt++;
+    }
+  }
+  return cnt;
+}
+
+/* Safety Guard: Simulasi kondisi ular setelah apel dituju dan dimakan */
+function evaluateApplePath(path,targetApple){
+  const vSnake=snake.slice();
+  _vOcc.set(occ);
+  for(let i=1;i<path.length;i++){
+    const cellN=path[i];
+    const isFood=(cellN===targetApple)||apples.has(cellN);
+    const tail=vSnake[vSnake.length-1];
+    if(isFood){
+      vSnake.unshift(cellN);
+      _vOcc[cellN]=1;
+    }else{
+      _vOcc[tail]=0;
+      vSnake.pop();
+      if(_vOcc[cellN])return null; // tabrakan tubuh
+      vSnake.unshift(cellN);
+      _vOcc[cellN]=1;
+    }
+  }
+  if(vSnake.length>=N){
+    return {path,steps:path.length-1,canTail:true,distToTail:1,freeSpace:0,vLen:vSnake.length};
+  }
+  const vHead=vSnake[0],vTail=vSnake[vSnake.length-1];
+  const tailInfo=canReachTail(vHead,vTail,_vOcc);
+  const space=getFreeSpace(vHead,_vOcc,vTail);
+  return {
+    path,
+    steps:path.length-1,
+    canTail:tailInfo.reachable,
+    distToTail:tailInfo.dist,
+    freeSpace:space,
+    vLen:vSnake.length
+  };
+}
+
+/* Food-First: cari dan evaluasi SEMUA apel yang terjangkau secara dinamis */
+function findFoodMove(){
+  if(apples.size===0)return -1;
+  const foundApples=dynamicFindApples();
+  if(foundApples.length===0)return -1;
+  const candidates=[];
+  for(const a of foundApples){
+    const path=getReconstructedPath(a);
+    if(!path||path.length<2)continue;
+    const ev=evaluateApplePath(path,a);
+    if(!ev)continue;
+    candidates.push(ev);
+  }
+  if(candidates.length===0)return -1;
+  const safe=candidates.filter(c=>c.canTail||c.freeSpace>Math.max(c.vLen+5,20));
+  if(safe.length===0)return -1;
+  safe.sort((a,b)=>{
+    if(a.canTail!==b.canTail)return a.canTail?-1:1;
+    if(a.steps!==b.steps)return a.steps-b.steps;
+    return b.freeSpace-a.freeSpace;
+  });
+  return safe[0].path[1];
+}
+
+/* Fallback: ikuti ekor secara aman atau masuki ruang terbuka paling luas */
+function fallbackMove(){
+  const head=snake[0],hx=head%W,hy=(head/W)|0,tail=snake[snake.length-1];
+  let best=-1,bestSc=-1e18;
+  for(let k=0;k<4;k++){
+    const x=hx+DIRS[k][0],y=hy+DIRS[k][1];
+    if(x<0||y<0||x>=W||y>=H)continue;
+    const n=y*W+x;
+    if(snake.length>1&&n===snake[1])continue;
+    if(occ[n]&&n!==tail)continue;
+    const isFood=apples.has(n);
+    const vSnake=snake.slice();
+    _vOcc.set(occ);
+    if(isFood){
+      vSnake.unshift(n);
+      _vOcc[n]=1;
+    }else{
+      _vOcc[tail]=0;
+      vSnake.pop();
+      vSnake.unshift(n);
+      _vOcc[n]=1;
+    }
+    const vHead=vSnake[0],vTail=vSnake[vSnake.length-1];
+    const tailInfo=canReachTail(vHead,vTail,_vOcc);
+    const space=getFreeSpace(vHead,_vOcc,vTail);
+    let sc=0;
+    if(tailInfo.reachable){
+      sc=1e9+space*100+tailInfo.dist;
+    }else{
+      sc=space;
+    }
+    if(sc>bestSc){
+      bestSc=sc;
+      best=n;
+    }
+  }
+  return best;
+}
+
+function nextMove(){
+  const f=findFoodMove();
+  if(f>=0)return f;
+  return fallbackMove();
+}
+
+function step(){
+  const n=nextMove();
+  if(n<0)return 2; // papan penuh / buntu -> ronde baru
+  const t=snake[snake.length-1];
+  prev=snake.slice();
+  const grow=apples.has(n);
+  snake.unshift(n);
+  if(grow){apples.delete(n);eaten++;prev.push(t);}
+  else{snake.pop();occ[t]=0;}
+  occ[n]=1;
+  return snake.length>=N?2:(grow?1:0);
+}
+//LOGIC_END
+
+/* ================= SUARA (sintesis WebAudio, tanpa file) ================= */
+const AC=new (window.AudioContext||window.webkitAudioContext)();
+// "keep-alive" audio: osilator sunyi (gain ~0) supaya AudioContext tidak auto-suspend saat idle
+try{const _k=AC.createOscillator(),_g=AC.createGain();_g.gain.value=.00001;_k.connect(_g).connect(AC.destination);_k.start();}catch(e){}
+function tone(f,t0,d,type='sine',v=.2,f2){const o=AC.createOscillator(),g=AC.createGain();o.type=type;o.frequency.setValueAtTime(f,t0);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);g.gain.setValueAtTime(v,t0);g.gain.exponentialRampToValueAtTime(.001,t0+d);o.connect(g).connect(AC.destination);o.start(t0);o.stop(t0+d+.02);}
+function crunch(t0,d=.08,f=1800,v=.5){const b=AC.createBuffer(1,Math.ceil(AC.sampleRate*d),AC.sampleRate),a=b.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=(Math.random()*2-1)*Math.pow(1-i/a.length,2.2);const s=AC.createBufferSource(),fl=AC.createBiquadFilter(),g=AC.createGain();s.buffer=b;fl.type='bandpass';fl.frequency.value=f;fl.Q.value=.9;g.gain.value=v;s.connect(fl).connect(g).connect(AC.destination);s.start(t0);}
+let lastEat=0;
+const sfx={
+  eat(){const n=performance.now(),quick=n-lastEat<160;if(n-lastEat<50)return;lastEat=n;const t=AC.currentTime;
+    // gigitan apel: dua letupan renyah + hentakan rahang (volume dikecilkan)
+    crunch(t,.05,3000,.26);crunch(t+.06,.08,1700,.2);tone(170,t,.09,'triangle',.12,80);
+    // menelan: "glup" nada turun
+    if(!quick){tone(430,t+.13,.17,'sine',.12,130);tone(215,t+.15,.12,'sine',.06,90);}},
+  gift(n=1){const t=AC.currentTime;if(n>=50)[392,523,659].forEach((f,i)=>tone(f,t+i*.05,.9,'sawtooth',.06));[784,988,1175,1568,1976,2349,2637].slice(0,n>=50?7:5).forEach((f,i)=>{tone(f,t+i*.07,.35,'triangle',.22);tone(f*2,t+i*.07,.2,'sine',.08);});},
+  over(){const t=AC.currentTime;[523,659,784,1047,784,1047,1319].forEach((f,i)=>tone(f,t+i*.14,.4,'square',.12));[523,659,784,1047].forEach(f=>tone(f,t+1.05,1.2,'triangle',.15));}
+};
+// suara default ON: coba nyalakan audio sejak awal, lalu kejar terus sampai berhasil
+const unlock=()=>{if(AC.state!=='running')AC.resume();};
+['pointerdown','pointerup','click','keydown','keyup','touchstart','wheel'].forEach(ev=>addEventListener(ev,unlock,{passive:true}));
+addEventListener('visibilitychange',unlock);
+addEventListener('focus',unlock);
+AC.onstatechange=unlock;                 // kalau browser men-suspend, langsung dinyalakan lagi
+unlock();
+setInterval(unlock,800);
+
+/* ================= COUNTDOWN 3-2-1 → GAME LANGSUNG JALAN ================= */
+let started=false;
+const cdBox=$('start'),cdEl=$('cd'),cdRing=$('cdring');
+function pop(txt){
+  cdEl.textContent=txt;
+  for(const el of [cdEl,cdRing]){el.style.animation='none';void el.offsetWidth;el.style.animation='';}
+}
+function countdown(){
+  const seq=['3','2','1','GO!'],dur=1000;
+  seq.forEach((s,i)=>setTimeout(()=>{
+    pop(s);unlock();
+    const t=AC.currentTime;
+    if(s==='GO!')[523,659,784,1047].forEach((f,k)=>tone(f,t+k*.06,.4,'triangle',.22));
+    else tone(720,t,.12,'triangle',.2);
+    if(i===seq.length-1){                      // GO! → game langsung jalan, overlay memudar
+      started=true;
+      setTimeout(()=>{cdBox.classList.add('off');setTimeout(()=>{cdBox.style.display='none';},500);},480);
+    }
+  },i*dur));
+}
+countdown();
+
+/* ================= SCENE 3D ================= */
+///// KANVAS TETAP 1080x1920 //////
+const CW=1080,CH=1920,stage=$('stage');
+const rd=new THREE.WebGLRenderer({antialias:true});rd.setPixelRatio(1);rd.setSize(CW,CH,false);stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
+const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(48,CW/CH,.1,700);sc.fog=new THREE.Fog(0x070a18,90,330);
+// Area aman kanvas: HUD di atas, kartu gift di bawah → papan dipaskan ke ruang di antaranya
+const UI={top:.06,bottom:.175,side:.022},FILL=.96;   // FILL<1 = papan di-zoom sedikit lebih besar
+const FIT=[];for(const x of[-W/2-.55,W/2+.55])for(const z of[-H/2-.55,H/2+.55])for(const y of[-.5,2.2])FIT.push(new THREE.Vector3(x,y,z));
+const _v=new THREE.Vector3();
+function bounds(){let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;for(const p of FIT){_v.copy(p).project(cam);if(_v.x<minX)minX=_v.x;if(_v.x>maxX)maxX=_v.x;if(_v.y<minY)minY=_v.y;if(_v.y>maxY)maxY=_v.y;}return{minX,maxX,minY,maxY};}
+function placeCam(d){cam.position.set(0,d*.82,d*.57+1);cam.lookAt(0,0,-H*.04);cam.updateMatrixWorld();}
+// panggung 1080x1920 diskalakan pas di jendela (letterbox), isi kanvas tidak berubah
+function fitStage(){const s=Math.min(innerWidth/CW,innerHeight/CH);stage.style.transform=`translate(-50%,-50%) scale(${s})`;}
+function fitCamera(){
+  cam.aspect=CW/CH;cam.clearViewOffset();cam.updateProjectionMatrix();
+  const rw=2*(1-UI.side*2),rh=2*(1-UI.top-UI.bottom);let lo=8,hi=560;
+  for(let i=0;i<26;i++){const m=(lo+hi)/2;placeCam(m);const b=bounds();(b.maxY-b.minY<=rh&&b.maxX-b.minX<=rw)?hi=m:lo=m;}
+  placeCam(hi*FILL);const b=bounds(),cx=(b.minX+b.maxX)/2,cy=(b.minY+b.maxY)/2,tY=1-2*(UI.top+(1-UI.top-UI.bottom)/2);
+  cam.setViewOffset(CW,CH,-cx*CW/2,(tY-cy)*CH/2,CW,CH);   // geser papan tepat ke tengah area aman
+}
+fitStage();fitCamera();addEventListener('resize',fitStage);
+/* ================= 3D SCENE: ISS OBSERVATION BAY & ORBITAL EARTH ================= */
+sc.add(new THREE.AmbientLight(0xffffff, 0.45)); // Pencahayaan seimbang dan terdefinisi
+sc.add(new THREE.HemisphereLight(0xffffff, 0x1e293b, 0.4));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(-15, 32, 20);
+sun.castShadow = true;
+Object.assign(sun.shadow.camera, {left: -22, right: 22, top: 22, bottom: -22});
+sun.shadow.mapSize.set(2048, 2048);
+sc.add(sun);
+
+// Earth-shine: pantulan cahaya biru Bumi dari bawah ke arah stasiun
+const earthShine = new THREE.DirectionalLight(0x38bdf8, 0.6);
+earthShine.position.set(10, -25, -20);
+sc.add(earthShine);
+
+const pl = new THREE.PointLight(0x38bdf8, 12, 16, 2);
+pl.position.set(0, 3.6, -H/2 - 4.5);
+sc.add(pl);
+
+const cv = (w, h, f) => {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  f(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return t;
+};
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+// 1. Taburan Bintang Deep Space & Debu Kosmik Halus
+const st = new Float32Array(3600);
+for (let i = 0; i < 3600; i += 3) {
+  st[i] = rnd(-280, 280);
+  st[i+1] = rnd(-50, 200);
+  st[i+2] = rnd(-280, -60);
+}
+const starsGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(st, 3));
+sc.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({size: 0.75, color: 0xffffff, fog: false})));
+
+// 2. Planet Bumi Megah dari Orbit ISS
+const earthT = cv(1024, 512, (g, w, h) => {
+  const og = g.createLinearGradient(0, 0, 0, h);
+  og.addColorStop(0, '#0a2352');
+  og.addColorStop(0.5, '#0e3a7c');
+  og.addColorStop(1, '#081a42');
+  g.fillStyle = og;
+  g.fillRect(0, 0, w, h);
+  
+  // Daratan benua & topografi
+  for (let i = 0; i < 65; i++) {
+    const cx = Math.random() * w, cy = h * 0.15 + Math.random() * h * 0.7;
+    const rx = 30 + Math.random() * 95, ry = 20 + Math.random() * 55;
+    g.fillStyle = `hsl(${130 + Math.random() * 35}, 48%, ${24 + Math.random() * 18}%)`;
+    g.beginPath();
+    g.ellipse(cx, cy, rx, ry, Math.random() * 3, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = 'rgba(20, 184, 166, 0.35)';
+    g.lineWidth = 6;
+    g.stroke();
+  }
+  // Sabuk awan dinamis
+  for (let i = 0; i < 90; i++) {
+    const cx = Math.random() * w, cy = Math.random() * h;
+    g.fillStyle = `rgba(255, 255, 255, ${0.18 + Math.random() * 0.32})`;
+    g.beginPath();
+    g.ellipse(cx, cy, 35 + Math.random() * 110, 8 + Math.random() * 22, Math.random() * 0.8 - 0.4, 0, Math.PI * 2);
+    g.fill();
+  }
+  // Lampu kota di belahan malam
+  for (let i = 0; i < 120; i++) {
+    g.fillStyle = 'rgba(251, 191, 36, 0.75)';
+    g.fillRect(w * 0.6 + Math.random() * (w * 0.38), h * 0.2 + Math.random() * (h * 0.6), 2, 2);
+  }
+});
+
+// Bola Bumi melengkung di latar belakang orbit
+const earth = new THREE.Mesh(
+  new THREE.SphereGeometry(105, 54, 36),
+  new THREE.MeshStandardMaterial({map: earthT, roughness: 0.68, metalness: 0.08, fog: false})
+);
+earth.position.set(-18, -48, -135);
+earth.rotation.x = 0.38;
+earth.rotation.z = -0.15;
+sc.add(earth);
+
+// Lapisan korona atmosfer bercahaya biru elektrik
+const atm = new THREE.Mesh(
+  new THREE.SphereGeometry(108, 48, 32),
+  new THREE.MeshBasicMaterial({color: 0x38bdf8, transparent: true, opacity: 0.28, side: THREE.BackSide, fog: false, blending: THREE.AdditiveBlending})
+);
+atm.position.copy(earth.position);
+sc.add(atm);
+
+const atmOuter = new THREE.Mesh(
+  new THREE.SphereGeometry(112, 32, 24),
+  new THREE.MeshBasicMaterial({color: 0x0284c7, transparent: true, opacity: 0.12, side: THREE.BackSide, fog: false, blending: THREE.AdditiveBlending})
+);
+atmOuter.position.copy(earth.position);
+sc.add(atmOuter);
+
+// 3. Arsitektur Stasiun Luar Angkasa ISS & Solar Arrays
+const issM = new THREE.MeshStandardMaterial({color: 0xe2e8f0, metalness: 0.88, roughness: 0.22});
+const issDark = new THREE.MeshStandardMaterial({color: 0x1e293b, metalness: 0.9, roughness: 0.35});
+const goldFoil = new THREE.MeshStandardMaterial({color: 0xffc72c, metalness: 0.92, roughness: 0.18, emissive: 0x4a3400});
+
+// Tekstur panel surya ISS fotovoltaik
+const solarT = cv(256, 512, (g, w, h) => {
+  g.fillStyle = '#09152b';
+  g.fillRect(0, 0, w, h);
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 4; x++) {
+      const px = x * 64 + 4, py = y * 32 + 2;
+      g.fillStyle = (x + y) % 2 ? '#0e2347' : '#0a1a36';
+      g.fillRect(px, py, 56, 28);
+      g.strokeStyle = '#d97706';
+      g.lineWidth = 1;
+      g.strokeRect(px + 2, py + 2, 52, 24);
+    }
+  }
+  g.strokeStyle = '#fbbf24';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(w / 2, 0); g.lineTo(w / 2, h);
+  g.stroke();
+});
+solarT.repeat.set(1, 2);
+const solarMat = new THREE.MeshStandardMaterial({map: solarT, roughness: 0.25, metalness: 0.85, emissive: 0x020817});
+
+const issGroup = new THREE.Group();
+const truss = new THREE.Mesh(new THREE.BoxGeometry(W + 36, 1.6, 2.4), issDark);
+truss.position.set(0, 9.5, -H/2 - 8);
+issGroup.add(truss);
+
+const solarWings = [];
+for (const s of [-1, 1]) {
+  const wingGroup = new THREE.Group();
+  for (let k = 0; k < 2; k++) {
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(10, 0.15, 24), solarMat);
+    panel.position.set(s * (W/2 + 15 + k * 11), 0, 0);
+    panel.castShadow = true;
+    wingGroup.add(panel);
+  }
+  wingGroup.position.set(0, 9.5, -H/2 - 8);
+  solarWings.push(wingGroup);
+  issGroup.add(wingGroup);
+}
+
+// Modul laboratorium bertekanan ISS
+for (const s of [-1, 1]) {
+  const mod = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 9, 20), issM);
+  mod.rotation.z = Math.PI / 2;
+  mod.position.set(s * 8, 3.5, -H/2 - 7);
+  issGroup.add(mod);
+  const foil = new THREE.Mesh(new THREE.CylinderGeometry(2.24, 2.24, 2.8, 20), goldFoil);
+  foil.rotation.z = Math.PI / 2;
+  foil.position.copy(mod.position);
+  issGroup.add(foil);
+}
+
+const dish = new THREE.Mesh(new THREE.SphereGeometry(2.5, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.45), issM);
+dish.position.set(W/2 + 3, 6, -H/2 - 4);
+dish.rotation.x = -0.6; dish.rotation.y = -0.5;
+issGroup.add(dish);
+sc.add(issGroup);
+
+
+// 4. Papan Futuristik Berganti Warna Dinamis (Kontras Tinggi terhadap Ular & Apel)
+const hull = new THREE.Mesh(new THREE.BoxGeometry(W + 3.2, 1.2, H + 3.2), new THREE.MeshStandardMaterial({color: 0x1e293b, metalness: 0.85, roughness: 0.3}));
+hull.position.set(0, -0.65, 0);
+hull.receiveShadow = true;
+sc.add(hull);
+
+const slab = new THREE.Mesh(new THREE.BoxGeometry(W + 1.2, 0.45, H + 1.2), new THREE.MeshStandardMaterial({color: 0x64748b, metalness: 0.75, roughness: 0.25}));
+slab.position.y = -0.25;
+slab.receiveShadow = true;
+sc.add(slab);
+
+// Sistem Kontras Mutlak & Dinamis:
+// Ronde GANJIL: Board Gelap Futuristik (Deep Obsidian) + Ular NEON MENYALA TERANG (Kuning Emas, Neon Lime, Cyan)
+// Ronde GENAP: Board Terang Bersih (Arctic White / Champagne) + Ular PEKAT GELAP VIBRANT (Royal Blue, Crimson Red, Dark Amethyst)
+// 100% Bebas Gelap-ketemu-Gelap & Bebas Terang-ketemu-Terang (Kuning di Putih DILENYAPKAN)
+const THEMES = [
+  // Ronde 1: Board Obsidian Gelap -> Ular Kuning Emas Solar Radiant (Super Menyala & Kontras)
+  {
+    name: 'Solar Gold on Deep Obsidian',
+    isDark: true,
+    pat: (u, j) => (u % 1.5) / 1.5 < 0.48 ? [0.12, 1.0, 0.54] : [0.10, 1.0, 0.44 + 0.04 * Math.sin(j * 1.2)],
+    head: [0.12, 1.0, 0.52],
+    bg: '#0a0f1d', alt: '#111a30',
+    line: 'rgba(56, 189, 248, 0.28)', cross: '#f59e0b', dot: '#38bdf8',
+    bevel: 'rgba(255, 255, 255, 0.08)',
+    trim: 0xf59e0b, slab: 0x1e293b, hull: 0x090d16
+  },
+  // Ronde 2: Board Arctic White Terang -> Ular Royal Cobalt Blue Pekat (Super Tajam & Kontras)
+  {
+    name: 'Royal Cobalt on Arctic White',
+    isDark: false,
+    pat: (u, j) => (u % 1.5) / 1.5 < 0.5 ? [0.61, 1.0, 0.28] : [0.63, 1.0, 0.22 + 0.03 * Math.sin(j * 1.2)],
+    head: [0.61, 1.0, 0.26],
+    bg: '#f8fafc', alt: '#e2e8f0',
+    line: 'rgba(30, 58, 138, 0.28)', cross: '#1d4ed8', dot: '#2563eb',
+    bevel: 'rgba(0, 0, 0, 0.05)',
+    trim: 0x1d4ed8, slab: 0xcbd5e1, hull: 0x475569
+  },
+  // Ronde 3: Board Deep Void Purple Gelap -> Ular Toxic Neon Lime Menyala (Cyberpunk Kontras Tinggi)
+  {
+    name: 'Toxic Lime on Void Purple',
+    isDark: true,
+    pat: (u, j) => (u % 1.4) / 1.4 < 0.46 ? [0.33, 1.0, 0.50] : [0.30, 1.0, 0.42 + 0.04 * Math.sin(j * 1.3)],
+    head: [0.33, 1.0, 0.48],
+    bg: '#110724', alt: '#1c0c38',
+    line: 'rgba(34, 197, 94, 0.30)', cross: '#a855f7', dot: '#22c55e',
+    bevel: 'rgba(255, 255, 255, 0.08)',
+    trim: 0x22c55e, slab: 0x3b0764, hull: 0x180326
+  },
+  // Ronde 4: Board Champagne Cream Terang -> Ular Crimson Blood Dragon Pekat (Super Tajam & Kontras)
+  {
+    name: 'Crimson Dragon on Warm Champagne',
+    isDark: false,
+    pat: (u, j) => (u % 1.5) / 1.5 < 0.48 ? [0.98, 1.0, 0.28] : [0.01, 1.0, 0.20 + 0.03 * Math.sin(j)],
+    head: [0.98, 1.0, 0.26],
+    bg: '#fefcf3', alt: '#fef3c7',
+    line: 'rgba(185, 28, 28, 0.28)', cross: '#dc2626', dot: '#b91c1c',
+    bevel: 'rgba(0, 0, 0, 0.05)',
+    trim: 0xdc2626, slab: 0xfde68a, hull: 0x78350f
+  },
+  // Ronde 5: Board Deep Carbon Abyss Gelap -> Ular Electric Ice Cyan Menyala (Super Terang di Gelap)
+  {
+    name: 'Electric Cyan on Carbon Abyss',
+    isDark: true,
+    pat: (u, j) => (u % 1.5) / 1.5 < 0.5 ? [0.52, 1.0, 0.50] : [0.49, 1.0, 0.42 + 0.04 * Math.sin(j * 1.2)],
+    head: [0.52, 1.0, 0.48],
+    bg: '#05121b', alt: '#0a1e2b',
+    line: 'rgba(6, 182, 212, 0.32)', cross: '#06b6d4', dot: '#38bdf8',
+    bevel: 'rgba(255, 255, 255, 0.08)',
+    trim: 0x06b6d4, slab: 0x0e7490, hull: 0x082f49
+  },
+  // Ronde 6: Board Mint Snow Cleanroom Terang -> Ular Deep Imperial Amethyst Pekat (Super Tajam & Kontras)
+  {
+    name: 'Imperial Amethyst on Mint Snow',
+    isDark: false,
+    pat: (u, j) => (u % 1.5) / 1.5 < 0.48 ? [0.77, 1.0, 0.28] : [0.80, 1.0, 0.20 + 0.03 * Math.sin(j)],
+    head: [0.77, 1.0, 0.26],
+    bg: '#f0fdf4', alt: '#dcfce7',
+    line: 'rgba(5, 150, 105, 0.28)', cross: '#059669', dot: '#047857',
+    bevel: 'rgba(0, 0, 0, 0.05)',
+    trim: 0x7c3aed, slab: 0xa7f3d0, hull: 0x064e3b
+  }
+];
+
+function drawBoardTile(g, theme) {
+  const w = 512, h = 512;
+  g.fillStyle = theme.bg;
+  g.fillRect(0, 0, w, h);
+  
+  for (let y = 0; y < 2; y++) {
+    for (let x = 0; x < 2; x++) {
+      const cx = x * 256, cy = y * 256;
+      g.fillStyle = (x + y) % 2 ? theme.alt : theme.bg;
+      g.fillRect(cx, cy, 256, 256);
+      
+      // Panel inner bevel highlight
+      g.fillStyle = theme.bevel || 'rgba(255, 255, 255, 0.08)';
+      g.fillRect(cx + 2, cy + 2, 252, 4);
+      g.fillRect(cx + 2, cy + 2, 4, 252);
+      
+      // Precision grid lines (terlihat sangat tegas dan jelas di layar)
+      g.strokeStyle = theme.line;
+      g.lineWidth = 2.5;
+      g.strokeRect(cx + 2, cy + 2, 252, 252);
+      
+      // Telemetry crosshairs (+)
+      g.strokeStyle = theme.cross;
+      g.lineWidth = 2.5;
+      const ch = 14;
+      g.beginPath();
+      g.moveTo(cx, cy - ch); g.lineTo(cx, cy + ch);
+      g.moveTo(cx - ch, cy); g.lineTo(cx + ch, cy);
+      g.stroke();
+      
+      // Micro-dots
+      g.fillStyle = theme.dot || theme.cross;
+      g.beginPath();
+      g.arc(cx + 128, cy + 128, 3.5, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  // Border perimeter dek
+  g.strokeStyle = theme.cross;
+  g.lineWidth = 5;
+  g.strokeRect(2, 2, w - 4, h - 4);
+}
+
+let tileCtx;
+const tile = cv(512, 512, (g) => {
+  tileCtx = g;
+  drawBoardTile(g, THEMES[0]); // Gambar tema pertama langsung di kanvas saat inisialisasi
+});
+tile.repeat.set(W / 2, H / 2);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(W, H),
+  new THREE.MeshStandardMaterial({map: tile, roughness: 0.25, metalness: 0.15})
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+sc.add(floor);
+
+// List tepi neon menyala dinamis
+const trim = new THREE.MeshBasicMaterial({color: 0x00f0ff});
+[[W + 0.8, 0.18, 0, H / 2 + 0.4], [W + 0.8, 0.18, 0, -H / 2 - 0.4], [0.18, H + 0.8, W / 2 + 0.4, 0], [0.18, H + 0.8, -W / 2 - 0.4, 0]].forEach(([w, d, x, z]) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.22, d), trim);
+  m.position.set(x, 0.04, z);
+  sc.add(m);
+});
+
+// Pilar pemandu telemetri di sudut papan
+const beamM = new THREE.MeshBasicMaterial({color: 0x38bdf8, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: 2});
+for (const sx of [-1, 1]) {
+  for (const sz of [-1, 1]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 1.4, 12), issM);
+    p.position.set(sx * (W / 2 + 0.45), 0.5, sz * (H / 2 + 0.45));
+    sc.add(p);
+    const t = new THREE.Mesh(new THREE.SphereGeometry(0.25), trim);
+    t.position.set(p.position.x, 1.3, p.position.z);
+    sc.add(t);
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.9, 12, 16, 1, true), beamM);
+    b.position.set(p.position.x, 7.2, p.position.z);
+    sc.add(b);
+  }
+}
+
+function applyTheme(r) {
+  const theme = THEMES[(r - 1) % THEMES.length];
+  if (tileCtx) {
+    drawBoardTile(tileCtx, theme);
+    tile.needsUpdate = true;
+  }
+  trim.color.setHex(theme.trim);
+  beamM.color.setHex(theme.trim);
+  slab.material.color.setHex(theme.slab);
+  hull.material.color.setHex(theme.hull);
+}
+
+// 5. Airlock Orbital ISS (Titik Luncur Apple P0)
+const P0 = new THREE.Vector3(0, 3.6, -H / 2 - 2.8);
+const portal = new THREE.Group();
+portal.position.copy(P0);
+sc.add(portal);
+
+const ring = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.25, 16, 48), issM);
+portal.add(ring);
+const disc = new THREE.Mesh(new THREE.CircleGeometry(2.0, 36), new THREE.MeshBasicMaterial({color: 0x38bdf8, transparent: true, opacity: 0.45, side: 2}));
+portal.add(disc);
+const hr = [0, 1].map(i => {
+  const t = new THREE.Mesh(new THREE.TorusGeometry(2.8 + i * 0.45, 0.04, 8, 64), new THREE.MeshBasicMaterial({color: i ? 0xec4899 : 0x00f0ff}));
+  portal.add(t);
+  return t;
+});
+const baseAirlock = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.8, 1.2, 24), issDark);
+baseAirlock.position.set(0, -3.7, 0);
+portal.add(baseAirlock);
+const dust = new THREE.Points(
+  new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(Float32Array.from({length: 450}, (_, i) => i % 3 === 1 ? rnd(0.2, 12) : rnd(-(W/2 + 5), W/2 + 5)), 3)),
+  new THREE.PointsMaterial({size: 0.07, color: 0x93c5fd, transparent: true, opacity: 0.55})
+);
+sc.add(dust);
+
+// 6. Ular Cyber-Viper dengan Sisik Putih Murni (Menghasilkan Warna 100% Cerah & Bernyawa)
+const MAXS = N * 6 + 8, D = new THREE.Object3D(), R = 0.42;
+
+// Tekstur sisik cyber bermotif kontur tajam (menjamin siluet ular selalu terdefinisi kontras)
+const scaleT = cv(128, 128, (g, w, h) => {
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, w, h);
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const cx = x * 16 + (y % 2 ? 8 : 0), cy = y * 16;
+      g.fillStyle = (x + y) % 2 ? '#f1f5f9' : '#ffffff';
+      g.beginPath();
+      g.arc(cx + 8, cy + 8, 6.5, 0, Math.PI * 2);
+      g.fill();
+      // Kontur sisik gelap agar garis batas badan ular selalu tegas di papan apapun
+      g.strokeStyle = 'rgba(15, 23, 42, 0.55)';
+      g.lineWidth = 1.6;
+      g.stroke();
+    }
+  }
+});
+scaleT.repeat.set(4, 3);
+
+const body = new THREE.InstancedMesh(
+  new THREE.SphereGeometry(1, 14, 10),
+  new THREE.MeshStandardMaterial({map: scaleT, roughness: 0.35, metalness: 0.1}),
+  MAXS
+);
+body.castShadow = true;
+body.frustumCulled = false;
+sc.add(body);
+
+const headMat = new THREE.MeshStandardMaterial({map: scaleT, roughness: 0.35, metalness: 0.1});
+const gold = new THREE.MeshStandardMaterial({color: 0xffd000, roughness: 0.15, emissive: 0x775500});
+const black = new THREE.MeshBasicMaterial({color: 0x020202});
+const tongueM = new THREE.MeshBasicMaterial({color: 0xff0044});
+const mouthM = new THREE.MeshBasicMaterial({color: 0x220208});
+
+const head = new THREE.Group(), hb = new THREE.Group();
+head.add(hb);
+hb.scale.setScalar(1.15);
+const part3 = (g, m, x, y, z, sx = 1, sy = 1, sz = 1, par = hb) => {
+  const e = new THREE.Mesh(g, m);
+  e.position.set(x, y, z);
+  e.scale.set(sx, sy, sz);
+  e.castShadow = true;
+  par.add(e);
+  return e;
+};
+const SP = new THREE.SphereGeometry(1, 20, 14);
+part3(SP, headMat, 0, 0.02, -0.05, R * 1.2, R * 0.7, R * 1.4);
+part3(SP, headMat, 0, -0.01, 0.4, R * 0.82, R * 0.52, R * 1.0);
+for (const x of [-1, 1]) {
+  part3(SP, headMat, x * 0.27, 0.12, 0.12, R * 0.38, R * 0.2, R * 0.6).rotation.y = x * 0.3;
+  part3(SP, gold, x * 0.31, 0.09, 0.17, 0.115, 0.115, 0.115); // mata emas menyala
+  part3(SP, black, x * 0.4, 0.1, 0.23, 0.03, 0.1, 0.04);     // pupil celah vertikal
+  part3(SP, black, x * 0.1, 0.06, 0.72, 0.025, 0.02, 0.025);
+}
+
+// Mahkota Cyber Emas
+const crown = new THREE.Group();
+const goldM = new THREE.MeshStandardMaterial({color: 0xffd700, metalness: 0.9, roughness: 0.2, emissive: 0x885500});
+crown.add(new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.18, 0.1, 20), goldM));
+for (let i = 0; i < 5; i++) {
+  const an = i / 5 * Math.PI * 2;
+  const sp = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.2, 8), goldM);
+  sp.position.set(Math.cos(an) * 0.19, 0.14, Math.sin(an) * 0.19);
+  crown.add(sp);
+}
+for (const [c, x] of [[0xff0055, 0], [0x00f0ff, -0.14], [0x10b981, 0.14]]) {
+  const g = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), new THREE.MeshStandardMaterial({color: c, emissive: c, emissiveIntensity: 0.85, roughness: 0.1}));
+  g.position.set(x, 0, 0.2 + (x ? -0.04 : 0));
+  crown.add(g);
+}
+crown.position.set(0, 0.27, -0.08);
+crown.rotation.x = -0.1;
+crown.scale.setScalar(1.4);
+hb.add(crown);
+
+const jawG = new THREE.Group();
+jawG.position.set(0, -0.08, -0.12);
+hb.add(jawG);
+part3(SP, headMat, 0, -0.04, 0.38, R * 0.95, R * 0.3, R * 1.3, jawG);
+part3(SP, mouthM, 0, 0.0, 0.45, R * 0.7, R * 0.1, R * 1.0, jawG);
+
+const tg = new THREE.Group();
+tg.position.set(0, -0.1, 0.8);
+hb.add(tg);
+for (const x of [-1, 1]) {
+  const t = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.02, 0.34), tongueM);
+  t.position.set(x * 0.05, 0, 0.17);
+  t.rotation.y = x * 0.3;
+  tg.add(t);
+}
+sc.add(head);
+
+// 7. Apple Permata Ruby Berkilau & Efek Cahaya Pijar (Light Glow)
+const mk = (g, m, n) => {
+  const i = new THREE.InstancedMesh(g, m, n);
+  i.castShadow = true;
+  i.frustumCulled = false;
+  sc.add(i);
+  return i;
+};
+
+// Apel kristal merah ruby cerah
+const appleMat = new THREE.MeshStandardMaterial({
+  color: 0xff1e48,
+  emissive: 0x880820,
+  emissiveIntensity: 0.45,
+  roughness: 0.18,
+  metalness: 0.3
+});
+const appleG = mk(new THREE.SphereGeometry(1, 16, 12), appleMat, N);
+
+// Efek glow ringan melingkar lembut di lantai persis di bawah apel
+const glowTexture = cv(128, 128, (g, w, h) => {
+  const r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  r.addColorStop(0, 'rgba(255, 30, 72, 0.55)');
+  r.addColorStop(0.45, 'rgba(255, 30, 72, 0.22)');
+  r.addColorStop(1, 'rgba(255, 30, 72, 0)');
+  g.fillStyle = r;
+  g.fillRect(0, 0, w, h);
+});
+const glowI = mk(
+  new THREE.PlaneGeometry(1.3, 1.3).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({map: glowTexture, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false}),
+  N
+);
+
+const stemI = mk(new THREE.CylinderGeometry(0.03, 0.03, 0.22, 5), new THREE.MeshStandardMaterial({color: 0x10b981, emissive: 0x065f46, roughness: 0.3}), N);
+
+// Partikel percikan saat apel dimakan
+const PN = 200, part = mk(new THREE.SphereGeometry(0.09, 6, 6), new THREE.MeshBasicMaterial({color: 0x38bdf8}), PN), pd = [];
+for (let i = 0; i < PN; i++) pd.push({l: 0, p: new THREE.Vector3(), v: new THREE.Vector3()});
+const wp = c => new THREE.Vector3((c % W) - W / 2 + 0.5, R, ((c / W) | 0) - H / 2 + 0.5);
+function burst(p, n = 10) {
+  for (const q of pd) {
+    if (n <= 0) break;
+    if (q.l <= 0) {
+      q.l = 0.6;
+      q.p.copy(p);
+      q.v.set((Math.random() - 0.5) * 4, 2 + Math.random() * 3, (Math.random() - 0.5) * 4);
+      n--;
+    }
+  }
+}
+
+// Palet warna ular terhubung dengan sistem tema dinamis (kontras tinggi)
+const PATS = THEMES.map(t => t.pat);
+const HEADC = THEMES.map(t => t.head);
+
+/* ================= ALUR PERMAINAN ================= */
+let queue=0,flying=[],fly=new Set(),acc=0,over=0,spawnT=0,flash=0,jaw=0,bulges=[],bulgeMid=18;const BASE=2;
+let GIFTS=[["🌹","Rose",5],["🫰","Finger Heart",5],["🍦","Ice Cream Cone",8],["🍩","Doughnut",30],["🤲","Hand Hearts",20],["🦢","Swan",40],["🐶","Corgi",50],["🌌","Galaxy",150],["🦁","Lion",300]];
+function tiers(){$('tiers').innerHTML=`<i>Gift → 🍎</i>`+GIFTS.map(g=>`<span>${g[0]} <b>${g[2]}</b></span>`).join('');}tiers();
+$('n').textContent=N;reset();applyTheme(round);
+/* Hanya pilih sel kosong yang masih bisa DICAPAI kepala (supaya apel tidak muncul
+   di kantong tertutup badan sendiri lalu membuat game macet). */
+function freeCell(){
+  const f=[];bfs(snake[0],snake[snake.length-1]);
+  for(let c=0;c<N;c++)if(!occ[c]&&!apples.has(c)&&!fly.has(c)&&_dist[c]>=0)f.push(c);
+  return f.length?f[(Math.random()*f.length)|0]:-1;
+}
+function launch(){const c=freeCell();if(c<0){queue=0;return;}flying.push({c,t:0});fly.add(c);}
+function gift(user,name,n,icon='🎁'){queue+=n;flash=1;sfx.gift(n);const t=$('toast');t.textContent=`${icon} ${user||'Seseorang'} kirim ${name||'gift'} → +${n} apel!`;t.style.background=n>=100?'linear-gradient(90deg,#ff9f1c,#ff2d95)':n>=30?'#a23bffcc':'#ff2d55cc';t.classList.add('on');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('on'),3200);}
+function newRound(){over=0;$('over').style.display='none';round++;reset();applyTheme(round);queue=0;flying=[];fly.clear();bulges=[];acc=0;spawnT=0;lastEatAt=performance.now();}
+function ui(){$('r').textContent=round;$('l').textContent=snake.length;$('e').textContent=eaten;}
+(function ws(){try{const proto=location.protocol==='https:'?'wss:':'ws:';const host=location.hostname||'localhost';const wsPort=QS.get('ws')||8766;const s=new WebSocket(`${proto}//${host}:${wsPort}`);s.onmessage=e=>{const p=JSON.parse(e.data);if(p.type==='gift')gift(p.user,p.gift,p.apples,p.icon);if(p.type==='config'){GIFTS=p.gifts;tiers();}};s.onclose=()=>setTimeout(ws,2500);s.onerror=()=>s.close();}catch(e){setTimeout(ws,3000);}})();
+/* ===== SHORTCUT SIMULASI GIFT (tanpa TikTok) =====
+   Ctrl+1 … Ctrl+9 = gift ke-1..9, Ctrl+0 = gift ke-10, Ctrl+N = RONDE BARU.
+   Angka 1-4 tanpa Ctrl juga masih berfungsi (tes cepat ala lama).            */
+function giftKe(i){
+  const g=GIFTS[i];
+  if(!g)return;
+  gift('Tes',g[1],g[2],g[0]);          // user, nama gift, jumlah apel, ikon
+}
+addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.metaKey){
+    const m=/^Digit([0-9])$/.exec(e.code)||/^([0-9])$/.exec(e.key);
+    if(m){
+      e.preventDefault();
+      const d=+m[1];
+      giftKe(d===0?9:d-1);              // Ctrl+0 → gift ke-10
+      return;
+    }
+    if(e.key==='n'||e.key==='N'||e.key==='r'||e.key==='R'){e.preventDefault();newRound();return;}
+    if(e.key==='+'||e.key==='='){e.preventDefault();for(const g of GIFTS)gift('Tes',g[1],g[2],g[0]);return;}
+  }
+  const k={1:['Rose',5,'🌹'],2:['Doughnut',30,'🍩'],3:['Corgi',50,'🐶'],4:['Galaxy',150,'🌌']}[e.key];
+  if(k)gift('Tes',k[0],k[1],k[2]);
+  if(e.key==='r'||e.key==='R')newRound();
+});
+
+/* Kecepatan ular TETAP: banyak apel/gift tidak lagi membuat ular makin cepat. */
+const STEP_MS=170;
+const stepOf=()=>STEP_MS;
+let last=performance.now(),tc=0,rafId=0,lastRaf=performance.now(),lastEatAt=performance.now();const col=new THREE.Color();
+/* Tutup ronde: tampilkan papan + mulai ronde baru otomatis. */
+function akhirRonde(judul){
+  $('over').innerHTML=`<div>${judul}<br><small>Ronde baru dimulai…</small></div>`;
+  $('over').style.display='grid';
+  sfx.over();
+}
+function frame(now){
+  const dt=Math.min((now-last)/1000,document.hidden?1:.1);last=now;const T=now/1000;
+  // gembulan menelan hanya berjalan sampai PERUT TENGAH (setengah panjang badan)
+  bulgeMid=Math.max(4,snake.length*.5)*6;
+  if(started&&!over){
+    const sm=stepOf();acc+=dt*1000;
+    while(acc>=sm&&!over){acc-=sm;const r=step();
+      if(r===1){sfx.eat();burst(wp(snake[0]),8);jaw=1;bulges.push(0);lastEatAt=now;}
+      if(r===2){over=now;akhirRonde('🏆 PAPAN PENUH!');}}
+    // papan buntu (badan mengunci, tidak ada apel terjangkau) → tutup ronde juga
+    if(!over&&snake.length>N*0.45&&now-lastEatAt>12000){over=now;akhirRonde('⏳ PAPAN BUNTU!');}
+    spawnT-=dt;
+    // sisa sel yang masih bisa diisi apel (papan penuh → berhenti spawn & buang antrean)
+    const ruang=N-snake.length-apples.size-flying.length;
+    if(!over&&ruang>0){
+      if(queue>0){if(spawnT<=0){queue--;launch();spawnT=Math.max(.012,.07-queue*.0008);}}
+      else{let g=0;while(apples.size+flying.length<BASE&&g++<BASE){const c=freeCell();if(c<0)break;apples.add(c);}}
+    }else if(ruang<=0)queue=0;                 // papan penuh: antrean gift dihentikan
+    const sp=6*1000/sm;for(let i=bulges.length-1;i>=0;i--){bulges[i]+=dt*sp;if(bulges[i]>=bulgeMid)bulges.splice(i,1);}
+  }else if(now-over>4500)newRound();
+  const k=over?1:Math.min(1,acc/stepOf());
+  const P=snake.map((c,i)=>wp(c).lerp(wp(prev[Math.min(i,prev.length-1)]),1-k));
+  const tot=(P.length-1)*6;let bn=0;
+  for(let i=0;i<P.length-1;i++){const p0=P[Math.max(i-1,0)],p1=P[i],p2=P[i+1],p3=P[Math.min(i+2,P.length-1)];
+    const dx=p2.x-p1.x,dz=p2.z-p1.z,l=Math.hypot(dx,dz)||1;
+    for(let s=0;s<6;s++){const t=s/6,t2=t*t,t3=t2*t,j=i*6+s;
+      const f=q=>.5*(2*p1[q]+(-p0[q]+p2[q])*t+(2*p0[q]-5*p1[q]+4*p2[q]-p3[q])*t2+(-p0[q]+3*p1[q]-3*p2[q]+p3[q])*t3);
+      const wig=Math.sin(j*.27-T*5)*.05*Math.min(1,j/15)*Math.min(1,(tot-j)/30);
+      let r=R*Math.min(1,.3+(tot-j)/22)*(j<9?.86+j*.015:1);
+      let bl=0;for(const b of bulges){const pg=b/bulgeMid;if(pg<1)bl+=Math.exp(-(((j-b)/10)**2))*(1-pg);} // gembulan memudar sebelum perut tengah
+      r*=1+.55*Math.min(bl,1);
+      D.position.set(f('x')-dz/l*wig,.1+r*.92,f('z')+dx/l*wig);D.quaternion.identity();D.scale.set(r,r*.9,r);D.updateMatrix();body.setMatrixAt(bn,D.matrix);
+      const u=j/6,pc=PATS[(round-1)%PATS.length](u,j);col.setHSL(pc[0],pc[1],Math.min(.95,pc[2]+(bl>.3?.1:0)));body.setColorAt(bn,col);bn++;}}
+  body.count=bn;body.instanceMatrix.needsUpdate=true;body.instanceColor.needsUpdate=true;
+  {const hc=HEADC[(round-1)%HEADC.length];headMat.color.setHSL(hc[0],hc[1],hc[2]);}head.position.set(P[0].x,.1+R*.95,P[0].z);
+  if(P.length>1){const d=P[0].clone().sub(P[1]);if(d.lengthSq()>1e-4)head.rotation.y=Math.atan2(d.x,d.z);}
+  jaw=Math.max(0,jaw-dt*2.5);jawG.rotation.x=jaw*.55;hb.scale.setScalar(1.15*(1+jaw*.1));tg.scale.z=Math.sin(T*7)>.55&&jaw<.1?1:.05;
+  let an=0;
+  const put=(p,s)=>{D.quaternion.identity();D.position.copy(p);D.position.y+=Math.sin(T*3+p.x)*.04;D.scale.setScalar(s);D.updateMatrix();appleG.setMatrixAt(an,D.matrix);
+    D.position.y+=s+.08;D.scale.set(1,1,1);D.updateMatrix();stemI.setMatrixAt(an,D.matrix);
+    D.position.set(p.x,.02,p.z);D.scale.setScalar(1.3+Math.sin(T*4+p.z)*.15);D.updateMatrix();glowI.setMatrixAt(an,D.matrix);an++;};
+  for(const a of apples){const p=wp(a);p.y=.3;put(p,.3);}
+  for(let i=flying.length-1;i>=0;i--){const f=flying[i];f.t+=dt/.9;if(f.t>=1){fly.delete(f.c);if(!occ[f.c]){apples.add(f.c);burst(wp(f.c),5);}else queue++;flying.splice(i,1);continue;}
+    const to=wp(f.c),p=P0.clone().lerp(to,f.t);p.y=P0.y+(.3-P0.y)*f.t+Math.sin(f.t*Math.PI)*4;put(p,.3*(.5+.5*f.t));}
+  appleG.count=glowI.count=stemI.count=an;[appleG,glowI,stemI].forEach(m=>m.instanceMatrix.needsUpdate=true);
+  let pn=0;for(const q of pd){if(q.l>0){q.l-=dt;q.v.y-=9*dt;q.p.addScaledVector(q.v,dt);D.position.copy(q.p);D.scale.setScalar(Math.max(q.l,0)*1.6);}else D.scale.setScalar(0);D.quaternion.identity();D.updateMatrix();part.setMatrixAt(pn++,D.matrix);}part.instanceMatrix.needsUpdate=true;
+  flash=Math.max(flash-dt*1.2,queue>0?1:0);
+  disc.material.opacity=.35+Math.sin(T*3)*.08+flash*.5;disc.material.color.setHex(flash>.2?0xffe066:0x5ab4ff);pl.intensity=10+flash*160;ring.rotation.z+=dt*(.4+flash*4);
+  earth.rotation.y += dt * 0.006;
+  atm.rotation.y += dt * 0.007;
+  dust.rotation.y += dt * 0.015;
+  dish.rotation.z += dt * 0.02;
+  for (const w of solarWings) w.rotation.x = Math.sin(T * 0.1) * 0.12;
+  lastRaf=now;ui();
+  if(!document.hidden)rd.render(sc,cam);          // tab tidak aktif: cukup logika, hemat GPU
+  rafId=requestAnimationFrame(frame);
+}
+rafId=requestAnimationFrame(frame);
+
+/* ===== Penggerak cadangan: rAF berhenti saat tab lain dibuka, worker + timer tetap mengetuk ===== */
+const tick=()=>{const t=performance.now();if(t-lastRaf>350){cancelAnimationFrame(rafId);frame(t);}};
+try{
+  const src='setInterval(()=>postMessage(1),250)';   // timer di dalam worker tidak kena throttle tab
+  const wk=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+  wk.onmessage=tick;
+}catch(e){}
+setInterval(tick,400);                               // jaring pengaman kedua (main thread)
+addEventListener('visibilitychange',()=>{last=performance.now();lastRaf=performance.now();});
+addEventListener('pageshow',()=>{last=performance.now();lastRaf=performance.now();});
+</script></body></html>
+

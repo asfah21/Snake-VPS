@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Environment Variables & Secrets
+.env
+.env.local
+*.env
+
+# Browser / Automation Profiles & Cache
+.browser_profile/
+*.session
+
+# IDE & Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
+
+# Operating System Files
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs & Debugging
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
