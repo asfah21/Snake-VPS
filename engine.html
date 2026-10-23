@@ -296,14 +296,17 @@ function placeCam(d){cam.position.set(0,d*.82,d*.57+1);cam.lookAt(0,0,-H*.04);ca
 // Board tetap proporsional karena kamera memakai aspek viewport, bukan ditarik/stretch.
 function fitStage(){
   const vw=Math.max(1,window.innerWidth||1),vh=Math.max(1,window.innerHeight||1);
-  const s=vw/CW;
-  CH=vh/s;
+  // Di HP: tampilkan panggung 90% viewport agar tidak terlalu penuh/terasa kebesaran.
+  const mobile=vw<=600,fit=mobile?.9:1;
+  const safeW=vw*fit,safeH=vh*fit;
+  const s=safeW/CW;
+  CH=safeH/s;
   stage.style.width=CW+'px';
   stage.style.height=CH+'px';
   stage.style.transform=`translate(-50%,-50%) scale(${s})`;
-  // Resolusi buffer mengikuti devicePixelRatio setelah skala panggung,
-  // sehingga 1080 unit logika tidak berubah tetapi hasil render tetap tajam.
-  const renderScale=Math.min(2,(window.devicePixelRatio||1)*s);
+  // Resolusi buffer mengikuti devicePixelRatio setelah skala panggung.
+  // Di HP dibatasi 0.8x pixel fisik supaya FPS stabil di GPU kelas menengah.
+  const renderScale=Math.min(mobile?.8:2,(window.devicePixelRatio||1)*s);
   rd.setPixelRatio(renderScale);
   rd.setSize(CW,CH,false);
 }
@@ -325,7 +328,7 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.2);
 sun.position.set(-15, 32, 20);
 sun.castShadow = true;
 Object.assign(sun.shadow.camera, {left: -22, right: 22, top: 22, bottom: -22});
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(window.innerWidth<=600?1024:2048, window.innerWidth<=600?1024:2048);
 sc.add(sun);
 
 // Earth-shine: pantulan cahaya biru Bumi dari bawah ke arah stasiun
