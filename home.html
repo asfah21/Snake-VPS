@@ -1032,7 +1032,9 @@
               <label class="input-label" for="resSelect">Resolusi</label>
               <select class="select-input" id="resSelect" onchange="saveGameSettings()">
                 <option value="">Default perangkat</option>
-                <option value="720">720p (720x1289)</option>
+                <option value="480">480p (paling ringan)</option>
+                <option value="540">540p (ringan)</option>
+                <option value="720">720p (720x1280)</option>
                 <option value="1080">1080p (1080x1920)</option>
                 <option value="auto">Res auto (ikuti layar)</option>
               </select>
@@ -1045,6 +1047,16 @@
                 <option value="60">60 FPS</option>
               </select>
             </div>
+          </div>
+          <div class="input-group" style="margin-bottom:10px">
+            <label class="input-label" for="fitSelect">Ukuran tampilan di layar</label>
+            <select class="select-input" id="fitSelect" onchange="saveGameSettings()">
+              <option value="">Default perangkat (HP 85%)</option>
+              <option value="1">100% (penuh)</option>
+              <option value="0.85">85%</option>
+              <option value="0.75">75%</option>
+              <option value="0.65">65% (kecil)</option>
+            </select>
           </div>
           <p class="setting-hint" id="gameSettingHint"></p>
 
@@ -1184,6 +1196,8 @@
       const f = $('fpsSelect') ? $('fpsSelect').value : '';
       if (r) p.set('res', r);
       if (f) p.set('fps', f);
+      const z = $('fitSelect') ? $('fitSelect').value : '';
+      if (z) p.set('fit', z);
       const q = p.toString();
       return `${location.origin}${GAME_PATH}${q ? '?' + q : ''}`;
     }
@@ -1192,9 +1206,11 @@
       const r = $('resSelect').value, f = $('fpsSelect').value;
       const resTxt = {
         '': 'Resolusi mengikuti perangkat (HP 720p, desktop 1080p)',
-        '720': 'Buffer 720x1289, paling ringan untuk HP',
-        '1080': 'Buffer 1080x1920, paling tajam, butuh HP kuat',
-        'auto': 'Mengikuti ukuran layar (mode lama), lebih berat dan bisa berkedip di HP'
+        '480': 'Lebar 480 piksel, paling ringan',
+        '540': 'Lebar 540 piksel, ringan',
+        '720': 'Lebar 720 piksel (layar 9:16 = 720x1280)',
+        '1080': 'Lebar 1080 piksel (layar 9:16 = 1080x1920), butuh HP kuat',
+        'auto': 'Mengikuti piksel layar, bisa lebih berat di HP'
       }[r];
       const fpsTxt = f ? `${f} FPS` : 'FPS default (HP 30, desktop bebas)';
       $('gameSettingHint').textContent = `${resTxt}. ${fpsTxt}.`;
@@ -1203,13 +1219,16 @@
     function saveGameSettings() {
       localStorage.setItem('snake_res', $('resSelect').value);
       localStorage.setItem('snake_fps', $('fpsSelect').value);
+      localStorage.setItem('snake_fit', $('fitSelect').value);
       gameSettingHint();
     }
 
     window.addEventListener('DOMContentLoaded', function restoreGameSettings() {
       const r = localStorage.getItem('snake_res') || '';
       const f = localStorage.getItem('snake_fps') || '';
-      if (['', '720', '1080', 'auto'].includes(r)) $('resSelect').value = r;
+      const z = localStorage.getItem('snake_fit') || '';
+      if (['', '480', '540', '720', '1080', 'auto'].includes(r)) $('resSelect').value = r;
+      if (['', '1', '0.85', '0.75', '0.65'].includes(z)) $('fitSelect').value = z;
       if (['', '30', '60'].includes(f)) $('fpsSelect').value = f;
       gameSettingHint();
     });
@@ -1381,7 +1400,7 @@
       } catch (e) {}
 
       const url = gameUrl(tokenParam);
-      const obsSize = $('resSelect').value === '720' ? '720x1289' : '1080x1920';
+      const obsSize = {'480': '480x854', '540': '540x960', '720': '720x1280'}[$('resSelect').value] || '1080x1920';
       const done = () => showToast(`Link OBS disalin! Atur ukuran ${obsSize}`, '📋');
       if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(url).then(done).catch(() => {

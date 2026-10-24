@@ -294,17 +294,17 @@ const CW=1080;let CH=1920;const stage=$('stage');
 const MOBILE=Math.min(window.innerWidth,window.innerHeight)<=600;
 const LOW_POWER=QS.get('lite')?QS.get('lite')!=='0':MOBILE;          // ?lite=1 paksa ringan, ?lite=0 matikan
 document.body.classList.toggle('lite',LOW_POWER);
-/* Resolusi render (buffer): ?res=1080 -> 1080x1920 | ?res=720 -> 720x1289 | ?res=auto -> mengikuti layar (mode lama).
-   Default: HP = 720, desktop/OBS = 1080. Buffer TETAP; browser hanya menskalakan tampilannya (tanpa kedip). */
+/* Resolusi render (lebar buffer): ?res=480 | 540 | 720 | 1080 -> buffer tetap, tinggi mengikuti rasio layar
+   (di layar 9:16: 720 = 720x1280, 1080 = 1080x1920). ?res=auto -> mengikuti piksel layar (maks 0.7x di HP).
+   Default: HP = 720, desktop/OBS = 1080. Buffer TIDAK dibuat ulang saat address bar naik-turun (penyebab kedip). */
 const RES=String(QS.get('res')||(LOW_POWER?'720':'1080')).toLowerCase();
-const FIXED=RES!=='auto';
-const RES_W=FIXED?(parseInt(RES,10)||720):CW;
-const RES_ASPECT=RES_W===720?1289/720:1920/1080;
-if(FIXED)CH=Math.round(CW*RES_ASPECT);
+const RES_N=RES==='auto'?0:Math.max(240,Math.min(2160,parseInt(RES,10)||720));
+/* ?fit=0.85 -> panggung memenuhi 85% layar (default HP 0.85, desktop 1). Kecilkan jika terasa kebesaran. */
+const FIT_SCALE=Math.max(.4,Math.min(1,+(QS.get('fit')||(MOBILE?.85:1))||1));
 /* Batas FPS render: HP default 30 (stabil lebih enak dilihat daripada 60 yang naik-turun). ?fps=60 untuk bebas */
 const FPS_CAP=+(QS.get('fps')||(LOW_POWER?30:0));
 const MIN_DT=(FPS_CAP>0&&FPS_CAP<60)?1000/FPS_CAP-2:0;
-const rd=new THREE.WebGLRenderer({antialias:!LOW_POWER,powerPreference:'high-performance',stencil:false});rd.setPixelRatio(1);if(FIXED){stage.style.width=CW+'px';stage.style.height=CH+'px';rd.setSize(RES_W,Math.round(RES_W*CH/CW),false);}else rd.setSize(CW,CH,false);stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
+const rd=new THREE.WebGLRenderer({antialias:!LOW_POWER,powerPreference:'high-performance',stencil:false});rd.setPixelRatio(1);rd.setSize(2,2,false);   // ukuran sebenarnya diatur di fitStage()stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
 const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(48,CW/CH,2.5,700);sc.fog=new THREE.Fog(0x070a18,90,330);
 // Area aman kanvas: HUD di atas, kartu gift di bawah → papan dipaskan ke ruang di antaranya
 const UI={top:.06,bottom:.175,side:.022},FILL=.96;   // FILL<1 = papan di-zoom sedikit lebih besar
@@ -314,26 +314,24 @@ function bounds(){let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;for(const p of FIT){
 function placeCam(d){cam.position.set(0,d*.82,d*.57+1);cam.lookAt(0,0,-H*.04);cam.updateMatrixWorld();}
 // Panggung mengikuti viewport: lebar tetap 1080 unit, tinggi menyesuaikan rasio layar.
 // Board tetap proporsional karena kamera memakai aspek viewport, bukan ditarik/stretch.
+let _lockA=0;
+/* Aspek panggung dikunci mengikuti layar saat dimuat; baru dihitung ulang jika rasio berubah jauh
+   (rotasi layar / ubah ukuran jendela). Perubahan kecil (address bar HP) hanya mengubah skala CSS. */
 function fitStage(){
   const vw=Math.max(1,window.innerWidth||1),vh=Math.max(1,window.innerHeight||1);
-  if(FIXED){                                   // buffer tetap -> cukup skala CSS (murah, tidak menghapus canvas)
-    const sf=Math.min(vw/CW,vh/CH);
-    stage.style.transform=`translate(-50%,-50%) scale(${sf})`;
-    return;
+  const a=Math.max(.4,Math.min(3,vh/vw));
+  let relock=false;
+  if(!_lockA||Math.abs(a/_lockA-1)>.12){
+    relock=true;_lockA=a;
+    CH=Math.round(CW*a);
+    stage.style.width=CW+'px';stage.style.height=CH+'px';
+    const bw=RES_N||Math.round(Math.min(MOBILE?.7*CW:2*CW,(window.devicePixelRatio||1)*vw*FIT_SCALE));
+    rd.setPixelRatio(1);
+    rd.setSize(bw,Math.max(2,Math.round(bw*CH/CW)),false);
   }
-  // Layar kecil (HP, termasuk landscape): panggung 85% viewport agar tidak terasa kebesaran.
-  const mobile=Math.min(vw,vh)<=600,fit=mobile?.85:1;
-  const safeW=vw*fit,safeH=vh*fit;
-  const s=safeW/CW;
-  CH=safeH/s;
-  stage.style.width=CW+'px';
-  stage.style.height=CH+'px';
-  stage.style.transform=`translate(-50%,-50%) scale(${s})`;
-  // Resolusi buffer mengikuti devicePixelRatio setelah skala panggung.
-  // Di HP dibatasi 0.7x pixel fisik supaya FPS stabil di GPU kelas menengah.
-  const renderScale=Math.min(mobile?.7:2,(window.devicePixelRatio||1)*s);
-  rd.setPixelRatio(renderScale);
-  rd.setSize(CW,CH,false);
+  const sf=Math.min(vw*FIT_SCALE/CW,vh*FIT_SCALE/CH);
+  stage.style.transform=`translate(-50%,-50%) scale(${sf})`;
+  return relock;
 }
 function fitCamera(){
   cam.aspect=CW/CH;cam.clearViewOffset();cam.updateProjectionMatrix();
@@ -343,7 +341,7 @@ function fitCamera(){
   cam.setViewOffset(CW,CH,-cx*CW/2,(tY-cy)*CH/2,CW,CH);   // geser papan tepat ke tengah area aman
 }
 let _camDone=false;
-function layout(){fitStage();if(!FIXED||!_camDone){fitCamera();_camDone=true;}}
+function layout(){const r=fitStage();if(r||!_camDone){fitCamera();_camDone=true;}}
 layout();
 /* resize di HP sering beruntun (address bar naik-turun): satukan per frame */
 let _rz=0;const onResize=()=>{if(_rz)return;_rz=requestAnimationFrame(()=>{_rz=0;layout();});};
