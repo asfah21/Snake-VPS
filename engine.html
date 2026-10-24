@@ -304,7 +304,7 @@ const FIT_SCALE=Math.max(.4,Math.min(1,+(QS.get('fit')||(MOBILE?.85:1))||1));
 /* Batas FPS render: HP default 30 (stabil lebih enak dilihat daripada 60 yang naik-turun). ?fps=60 untuk bebas */
 const FPS_CAP=+(QS.get('fps')||(LOW_POWER?30:0));
 const MIN_DT=(FPS_CAP>0&&FPS_CAP<60)?1000/FPS_CAP-2:0;
-const rd=new THREE.WebGLRenderer({antialias:!LOW_POWER,powerPreference:'high-performance',stencil:false});rd.setPixelRatio(1);rd.setSize(2,2,false);   // ukuran sebenarnya diatur di fitStage()stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
+const rd=new THREE.WebGLRenderer({antialias:!LOW_POWER,powerPreference:'high-performance',stencil:false});rd.setPixelRatio(1);rd.setSize(2,2,false);   /* ukuran sebenarnya diatur di fitStage() */stage.append(rd.domElement);rd.shadowMap.enabled=true;rd.toneMapping=THREE.ACESFilmicToneMapping;rd.toneMappingExposure=1.15;
 const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(48,CW/CH,2.5,700);sc.fog=new THREE.Fog(0x070a18,90,330);
 // Area aman kanvas: HUD di atas, kartu gift di bawah → papan dipaskan ke ruang di antaranya
 const UI={top:.06,bottom:.175,side:.022},FILL=.96;   // FILL<1 = papan di-zoom sedikit lebih besar
