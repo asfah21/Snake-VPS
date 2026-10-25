@@ -82,63 +82,175 @@ function bfs(start,allow){
   }
 }
 
-/* ===== STRATEGI: ular menyapu papan mengikuti siklus Hamilton (baris demi baris, rapat),
-   dan hanya mengambil jalan pintas bila AMAN dan benar-benar menghemat langkah. =====
-   Aturan emas: badan ular selalu tersusun menurut urutan siklus (ekor -> kepala).
-   Jalan pintas hanya boleh MAJU di dalam sel kosong antara kepala dan ekor, tidak pernah
-   mundur / memotong badan sendiri. Akibatnya: tidak ada ruang terisolasi, tidak ada
-   gerakan berliku tanpa tujuan, dan ular tidak pernah terjebak. */
-const _dpS=new Int32Array(N),_dpC=new Int32Array(N),_dpP=new Int32Array(N),_bodyOff=new Int32Array(N+1);
-const INF=1e9;
-function nextMove(){
-  const L=snake.length,head=snake[0],tail=snake[L-1],hi=idx[head];
-  const off=c=>(idx[c]-hi+N)%N;
-  const atOff=o=>cell((hi+o)%N);
-  // posisi ekor (dalam offset siklus) setelah t langkah tanpa makan. 0 dianggap N (melingkar penuh)
-  for(let t=0;t<L;t++){const o=off(snake[L-1-t]);_bodyOff[t]=o===0?N:o;}
-  const tailAt=t=>t>=L-1?N:_bodyOff[t];
+/* ===================== AI STRATEGIS (bermain seperti pemain berpengalaman) =====================
+   Prioritas: 1) BERTAHAN HIDUP  >  2) MENJAGA RUANG GERAK  >  3) MENGEJAR APEL.
 
-  // langkah dasar: ikuti siklus (selalu aman)
-  const nxt=cell((hi+1)%N);
-  const cycleStep=()=>{
-    if(!occ[nxt]||(nxt===tail&&!apples.has(nxt)))return nxt;
-    return -1;
-  };
-  if(apples.size===0)return cycleStep();
+   1) Keselamatan (mutlak): badan ular selalu tersusun menurut urutan siklus Hamilton (ekor -> kepala).
+      Hanya jalur yang MAJU searah siklus lewat sel kosong yang dipertimbangkan, dengan posisi ekor
+      dihitung PADA SETIAP TICK (ekor bergeser, tumbuh saat makan). Jalur seperti ini tidak pernah
+      memotong ekor/badan, tidak pernah mengurung diri, dan selalu menyisakan jalan keluar.
+   2) Ruang: setiap rencana disimulasikan sampai ular selesai makan, lalu diukur sel kosong yang
+      terisolasi (lubang) dan ruang yang masih terjangkau. Jalan pintas yang meninggalkan banyak lubang
+      dihukum, makin berat ketika papan makin penuh (isi papan secara terencana, bukan acak).
+   3) Apel: dari beberapa kandidat apel, ular mensimulasikan makan apel itu lalu menghitung seberapa
+      mudah apel BERIKUTNYA (lookahead 2 apel). Target dipertahankan (komitmen) agar tidak plin-plan.
+   Gerakan natural: jalur lurus diutamakan; belok dihitung mahal bila dilakukan terlalu dini, sehingga ular
+   mempertahankan arah dan baru bermanuver mendekati apel. Tanpa apel / apel tak aman: mengikuti
+   siklus (mengekor jalur sendiri) sampai ada peluang lebih baik. */
+const INF=1e9,STEP_C=100,NS=N*5;
+const _cost=new Float64Array(NS),_stp=new Int32Array(NS),_apc=new Int32Array(NS),_par=new Int32Array(NS);
+const _bodyOff=new Int32Array(N+1);
+const _fOcc=new Uint8Array(N),_fSeen=new Uint8Array(N),_fQ=new Int32Array(N);
+let _commit=-1;                                   // apel yang sedang dituju
+const AI_TUNE={arc0:.22,arc1:.62,hole0:.8,hole1:4.0,reach:.5,next:.4,turn:.3,enroute:3,commit:5};
 
-  // DP jalur terpendek MONOTON (offset siklus selalu bertambah) = jalan pintas aman
-  _dpS.fill(INF);_dpC.fill(0);_dpP.fill(-1);
-  _dpS[head]=0;
-  let reach=0;
+function dirIndex(a,b){                           // arah a->b (sel bersebelahan), 4 = tidak ada
+  const dx=(b%W)-(a%W),dy=((b/W)|0)-((a/W)|0);
+  for(let k=0;k<4;k++)if(DIRS[k][0]===dx&&DIRS[k][1]===dy)return k;
+  return 4;
+}
+
+/* DP jalur MONOTON (offset siklus selalu bertambah) dari kepala. Biaya = langkah*100 + penalti belok.
+   Penalti belok lebih besar bila belok terjadi di awal -> belok ditunda selambat mungkin. */
+function dpPlan(snk,apl,dir0){
+  const L=snk.length,hi=idx[snk[0]];
+  for(let t=0;t<L;t++){const o=(idx[snk[L-1-t]]-hi+N)%N;_bodyOff[t]=o===0?N:o;}
+  _cost.fill(INF);
+  const s0=snk[0]*5+dir0;_cost[s0]=0;_stp[s0]=0;_apc[s0]=0;_par[s0]=-1;
   for(let o=0;o<N;o++){
-    const c=atOff(o);
-    const s=_dpS[c];
-    if(s>=INF)continue;
-    const cnt=_dpC[c],cx=c%W,cy=(c/W)|0;
-    for(let k=0;k<4;k++){
-      const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
-      if(nx<0||ny<0||nx>=W||ny>=H)continue;
-      const m=ny*W+nx,om=off(m);
-      if(om<=o)continue;                        // hanya maju searah siklus
-      const g=apples.has(m)?1:0;
-      const T=tailAt(s-cnt);                    // posisi ekor saat langkah ini dijalankan
-      if(!(om<T||(om===T&&!g)))continue;        // harus sel kosong (ekor boleh ditempati jika tidak tumbuh)
-      const s2=s+1,c2=cnt+g;
-      if(s2<_dpS[m]||(s2===_dpS[m]&&c2>_dpC[m])){_dpS[m]=s2;_dpC[m]=c2;_dpP[m]=c;}
+    const c=cell((hi+o)%N),cx=c%W,cy=(c/W)|0;
+    for(let d=0;d<5;d++){
+      const st=c*5+d,cs=_cost[st];
+      if(cs>=INF)continue;
+      const s=_stp[st],a=_apc[st],tk=s-a;
+      const T=tk>=L-1?N:_bodyOff[tk];                 // posisi ekor saat langkah ini dijalankan
+      for(let k=0;k<4;k++){
+        const nx=cx+DIRS[k][0],ny=cy+DIRS[k][1];
+        if(nx<0||ny<0||nx>=W||ny>=H)continue;
+        const m=ny*W+nx,om=(idx[m]-hi+N)%N;
+        if(om<=o)continue;
+        const g=apl.has(m)?1:0;
+        if(!(om<T||(om===T&&!g)))continue;            // hanya sel kosong (ekor boleh ditempati jika tidak tumbuh)
+        let nc=cs+STEP_C;
+        if(d!==4&&d!==k)nc+=8+14*(1-Math.min(s,14)/14);
+        const ns=m*5+k;
+        if(nc<_cost[ns]){_cost[ns]=nc;_stp[ns]=s+1;_apc[ns]=a+g;_par[ns]=st;}
+      }
     }
   }
-  // pilih apel dengan langkah paling sedikit (seri: yang jalurnya melewati lebih banyak apel)
-  let target=-1,bs=INF,bc=-1;
-  for(const a of apples){
-    const s=_dpS[a];
-    if(s>=INF||s===0)continue;
-    const c=_dpC[a];
-    if(s<bs||(s===bs&&c>bc)){bs=s;bc=c;target=a;}
+  return hi;
+}
+function pathFrom(st){const r=[];while(_par[st]>=0){r.push((st/5)|0);st=_par[st];}return r.reverse();}
+function bestAt(c){let b=-1,bc=INF;for(let d=0;d<4;d++){const v=_cost[c*5+d];if(v<bc){bc=v;b=c*5+d;}}return b;}
+
+/* Simulasi ular setelah menjalani jalur (tumbuh tiap melewati apel) */
+function simulate(snk,cells,apl){
+  const L=snk.length,m=cells.length;let c=0,cnt=0;
+  for(let i=0;i<m;i++)if(apl.has(cells[i]))c++;
+  const newLen=Math.min(N,L+c),ns=new Array(newLen);let i=0;
+  for(let j=m-1;j>=0&&i<newLen;j--)ns[i++]=cells[j];
+  for(let j=0;j<L&&i<newLen;j++)ns[i++]=snk[j];
+  return {ns,c};
+}
+/* Ruang: sel kosong terjangkau dari kepala (ekor dianggap kosong) & sel kosong yang terisolasi */
+function floodStats(snk){
+  const L=snk.length;_fOcc.fill(0);_fSeen.fill(0);
+  for(let i=0;i<L-1;i++)_fOcc[snk[i]]=1;
+  let h=0,t=0,reach=0;_fQ[t++]=snk[0];_fSeen[snk[0]]=1;
+  while(h<t){
+    const c=_fQ[h++],cx=c%W,cy=(c/W)|0;
+    for(let k=0;k<4;k++){
+      const x=cx+DIRS[k][0],y=cy+DIRS[k][1];
+      if(x<0||y<0||x>=W||y>=H)continue;
+      const m=y*W+x;
+      if(_fOcc[m]||_fSeen[m])continue;
+      _fSeen[m]=1;reach++;_fQ[t++]=m;
+    }
   }
-  if(target<0)return cycleStep();
-  let cur=target;
-  while(_dpP[cur]!==head&&_dpP[cur]>=0)cur=_dpP[cur];
-  return _dpP[cur]===head?cur:cycleStep();
+  return {reach,holes:Math.max(0,(N-(L-1))-1-reach)};
+}
+function countTurns(head,cells,heading){
+  let d=heading,turns=0,prevC=head;
+  for(let i=0;i<cells.length;i++){const k=dirIndex(prevC,cells[i]);if(d!==4&&k!==d)turns++;d=k;prevC=cells[i];}
+  return turns;
+}
+
+function nextMove(){
+  const L=snake.length;
+  if(L>=N)return -1;
+  const head=snake[0],tail=snake[L-1],hi=idx[head];
+  const nxt=cell((hi+1)%N);
+  const legal=m=>m>=0&&!(occ[m]&&!(m===tail&&!apples.has(m)));
+  const cycleStep=()=>legal(nxt)?nxt:-1;                   // fallback: ikuti siklus (mengekor jalur sendiri)
+  if(apples.size===0){_commit=-1;return cycleStep();}
+  if(_commit>=0&&!apples.has(_commit))_commit=-1;
+  const heading=L>1?dirIndex(snake[1],head):4;
+
+  // --- 1) kandidat apel & jalur aman dari DP (tanpa lubang diperhitungkan dulu)
+  dpPlan(snake,apples,heading);
+  const dpList=[];
+  for(const a of apples){const st=bestAt(a);if(st>=0)dpList.push({a,st,cost:_cost[st]});}
+  if(dpList.length===0)return cycleStep();
+  dpList.sort((x,y)=>x.cost-y.cost);
+  const picked=new Map();
+  for(let i=0;i<Math.min(6,dpList.length);i++){const e=dpList[i];picked.set(e.a,pathFrom(e.st));}
+  if(_commit>=0&&!picked.has(_commit)){const e=dpList.find(v=>v.a===_commit);if(e)picked.set(e.a,pathFrom(e.st));}
+  const cands=[];
+  for(const [a,cells] of picked)cands.push({a,cells,kind:'dp'});
+
+  // --- jalur "ikut siklus" ke apel yang sama (tanpa jalan pintas = tanpa lubang)
+  const tailAt0=t=>t>=L-1?N:(_bodyOff[t]);
+  for(const [a] of picked){
+    const offA=(idx[a]-hi+N)%N;if(offA<1)continue;
+    const cells=[];let s=0,ac=0,ok=true;
+    for(let i=1;i<=offA;i++){
+      const x=cell((hi+i)%N),g=apples.has(x)?1:0,T=tailAt0(s-ac);
+      if(!(i<T||(i===T&&!g))){ok=false;break;}
+      cells.push(x);s++;ac+=g;
+    }
+    if(ok)cands.push({a,cells,kind:'cyc'});
+  }
+
+  // --- 2) evaluasi: simulasi tubuh setelah makan, ruang, lookahead apel berikutnya
+  const before=floodStats(snake).holes,fill=L/N;
+  const hw=AI_TUNE.hole0+AI_TUNE.hole1*fill*fill;
+  let best=null,bestScore=INF;
+  for(const cd of cands){
+    const m=cd.cells.length;if(m<1)continue;
+    if(!legal(cd.cells[0])||dirIndex(head,cd.cells[0])===4)continue;      // jaring pengaman terakhir
+    const sim=simulate(snake,cd.cells,apples);
+    const fs=floodStats(sim.ns);
+    const holePen=Math.max(0,fs.holes-before)*hw;
+    // RUANG GERAK: jalur bebas di depan kepala (searah siklus) harus tetap sebagian besar ruang kosong.
+    // Jika jalan pintas "melompati" terlalu banyak sel, kepala terkurung di kantong sempit (hanya bisa mengekor).
+    const freeAfter=N-sim.ns.length;
+    const arc=((idx[sim.ns[sim.ns.length-1]]-idx[sim.ns[0]]+N)%N||N)-1;
+    const arcRatio=freeAfter>0?Math.min(1,arc/freeAfter):1;
+    const arcNeed=AI_TUNE.arc0+AI_TUNE.arc1*fill;      // ular pendek: lubang cepat hilang -> longgar; papan makin penuh -> ketat
+    const arcPen=(freeAfter>6&&arcRatio<arcNeed)?1000+(arcNeed-arcRatio)*1000:0;
+    // kepala tidak boleh berada di ruang yang jauh lebih kecil daripada seluruh sel kosong
+    const reachPen=Math.max(0,(freeAfter*AI_TUNE.reach-fs.reach))*(1+fill*3);
+    const risk=((sim.ns.length<N-3&&fs.reach<4)?60:0)+arcPen+reachPen;
+    let steps2=0;
+    const eatenNow=new Set();for(const x of cd.cells)if(apples.has(x))eatenNow.add(x);
+    const rest=new Set();for(const a of apples)if(!eatenNow.has(a))rest.add(a);
+    if(rest.size>0&&sim.ns.length<N){
+      const dEnd=dirIndex(m>1?cd.cells[m-2]:head,cd.cells[m-1]);
+      dpPlan(sim.ns,rest,dEnd);
+      let bc=INF,bs=0;
+      for(const a of rest){const st=bestAt(a);if(st>=0&&_cost[st]<bc){bc=_cost[st];bs=_stp[st];}}
+      steps2=bc<INF?bs:30;
+    }
+    let cnt=0;for(const x of cd.cells)if(apples.has(x))cnt++;
+    const turns=countTurns(head,cd.cells,heading);
+    const score=m+AI_TUNE.next*steps2+holePen+AI_TUNE.turn*turns
+               -AI_TUNE.enroute*(cnt-1)+risk-(cd.a===_commit?AI_TUNE.commit:0);
+    cd.score=score;
+    if(score<bestScore){bestScore=score;best=cd;}
+  }
+  if(!best)return cycleStep();
+  _commit=best.a;
+  return best.cells[0];
 }
 
 function step(){

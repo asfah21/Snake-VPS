@@ -403,11 +403,23 @@ Tambahkan di akhir URL, contoh: `https://domain/engine.html?res=720&fps=30&fit=0
 
 | Parameter | Nilai | Keterangan |
 |---|---|---|
-| `res` | `480` / `540` / `720` / `1080` / `auto` | Lebar buffer render. Tinggi mengikuti rasio layar (layar 9:16: 720 = 720x1280, 1080 = 1080x1920). `auto` = mengikuti piksel layar. Default: HP `720`, desktop/OBS `1080` |
+| `res` | `480` / `540` / `720` / `1080` / `auto` | Lebar buffer render. Tinggi mengikuti rasio layar (layar 9:16: 720 = 720x1280, 1080 = 1080x1920). `auto` = **pas penuh layar tanpa celah hitam** (ukuran tampilan otomatis 100%, buffer mengikuti piksel layar; di HP sentuh layar sekali untuk masuk layar penuh). Default: HP `720`, desktop/OBS `1080` |
 | `fps` | `30` / `60` | Batas FPS render. Default HP `30`, desktop bebas |
-| `fit` | `0.4` - `1` | Ukuran tampilan di layar. Default HP `0.85`, desktop `1`. Kecilkan jika terasa kebesaran |
+| `fit` | `0.4` - `1` (40% - 100%) | Ukuran tampilan di layar. Default HP `0.85`, desktop `1`. Kecilkan jika terasa kebesaran |
 | `lite` | `1` / `0` | `1` = mode ringan (tanpa blur/bayangan CSS berat, geometri lebih sederhana). Default aktif otomatis di HP |
 
 Rekomendasi: HP menengah `?res=540&fps=30`, HP lemah `?res=480&fps=30`, HP kuat `?res=1080&fps=60`.
 
 Semua pilihan di atas juga ada di dashboard (`home.html`) pada kartu bot: **Resolusi**, **FPS**, dan **Ukuran tampilan**. Pilihan tersimpan di browser dan dipakai oleh tombol "Jalankan & Buka Game", "Buka Layar Game Saja", dan "Salin Link OBS".
+
+## Logic AI ular (engine.html & snake.html)
+
+Prioritas: **bertahan hidup > menjaga ruang gerak > mengejar apel.**
+
+- **Keselamatan:** ular hanya memilih jalur yang terbukti aman. Posisi ekor dihitung pada setiap tick (ekor bergeser, tumbuh saat makan). Jalur tidak pernah memotong ekor/badan sendiri.
+- **Ruang gerak:** setiap rencana disimulasikan sampai ular selesai makan. Jalan pintas yang membuat kepala terkurung di kantong sempit atau meninggalkan banyak sel kosong terisolasi ditolak/dihukum, makin ketat ketika papan makin penuh.
+- **Apel:** dari beberapa kandidat, ular menyimulasikan makan apel itu lalu menilai apel berikutnya (lookahead 2 apel). Target dipertahankan (tidak plin-plan).
+- **Gerakan natural:** jalur lurus diutamakan; belok dihitung mahal bila terlalu dini, sehingga ular baru bermanuver mendekati apel.
+- **Fallback:** jika tidak ada apel atau apel tidak aman dikejar, ular mengikuti jalur siklus (mengekor jalur sendiri) sampai ada peluang lebih baik.
+
+Bobot AI bisa disetel lewat konstanta `AI_TUNE` di blok `//LOGIC_START` pada `engine.html`.
