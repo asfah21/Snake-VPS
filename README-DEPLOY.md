@@ -406,6 +406,7 @@ Tambahkan di akhir URL, contoh: `https://domain/engine.html?res=720&fps=30&fit=0
 | `res` | `480` / `540` / `720` / `1080` / `auto` | Lebar buffer render. Tinggi mengikuti rasio layar (layar 9:16: 720 = 720x1280, 1080 = 1080x1920). `auto` = **pas penuh layar tanpa celah hitam** (ukuran tampilan otomatis 100%, buffer mengikuti piksel layar; di HP sentuh layar sekali untuk masuk layar penuh). Default: HP `720`, desktop/OBS `1080` |
 | `fps` | `30` / `60` | Batas FPS render. Default HP `30`, desktop bebas |
 | `fit` | `0.4` - `1` (40% - 100%) | Ukuran tampilan di layar. Default HP `0.85`, desktop `1`. Kecilkan jika terasa kebesaran |
+| `safeTop` / `safeBottom` | angka piksel (lebar 1080) | Jarak aman header (atas) dan footer gift (bawah) agar tidak tertutup UI TikTok Live. Default `0`. Angka awal yang disarankan: `safeTop=110&safeBottom=230`, lalu sesuaikan setelah uji di live |
 | `lite` | `1` / `0` | `1` = mode ringan (tanpa blur/bayangan CSS berat, geometri lebih sederhana). Default aktif otomatis di HP |
 
 Rekomendasi: HP menengah `?res=540&fps=30`, HP lemah `?res=480&fps=30`, HP kuat `?res=1080&fps=60`.
@@ -423,3 +424,12 @@ Prioritas: **bertahan hidup > menjaga ruang gerak > mengejar apel.**
 - **Fallback:** jika tidak ada apel atau apel tidak aman dikejar, ular mengikuti jalur siklus (mengekor jalur sendiri) sampai ada peluang lebih baik.
 
 Bobot AI bisa disetel lewat konstanta `AI_TUNE` di blok `//LOGIC_START` pada `engine.html`.
+
+## Tampilan game (engine.html)
+
+- **Header (bar atas):** ronde, panjang ular (dengan bar progres), apel dimakan, status koneksi. Chip "apel menunggu" muncul bila ada antrean gift.
+- **Footer:** kartu gift 2 baris (jumlah kolom menyesuaikan jumlah gift; lebih dari 8 gift berganti halaman otomatis). Kartu yang bersangkutan berkilau saat gift masuk.
+- **Feed gift:** maksimal 3 item bertumpuk di bawah header; gift besar mendapat banner di tengah.
+- **Layar akhir ronde:** ringkasan (panjang, apel, waktu), penyumbang teratas, dan hitung mundur ronde berikutnya.
+- Ruang papan dihitung dari tinggi header dan footer yang sebenarnya, jadi tidak pernah tertimpa UI.
+- Efek cahaya hanya memakai `transform`/`opacity` dan otomatis mati di mode lite atau saat perangkat meminta gerakan dikurangi.

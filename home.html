@@ -1060,6 +1060,14 @@
               <option value="0.4">40% (paling kecil)</option>
             </select>
           </div>
+          <div class="input-group" style="margin-bottom:10px">
+            <label class="input-label" for="safeSelect">Zona aman UI TikTok (header &amp; footer)</label>
+            <select class="select-input" id="safeSelect" onchange="saveGameSettings()">
+              <option value="">Mati (rapat ke tepi layar)</option>
+              <option value="mid">Sedang (jarak atas 110, bawah 230)</option>
+              <option value="wide">Lebar (jarak atas 170, bawah 330)</option>
+            </select>
+          </div>
           <p class="setting-hint" id="gameSettingHint"></p>
 
           <div class="btn-group">
@@ -1200,6 +1208,9 @@
       if (f) p.set('fps', f);
       const z = $('fitSelect') ? $('fitSelect').value : '';
       if (z) p.set('fit', z);
+      const sz = $('safeSelect') ? $('safeSelect').value : '';
+      const SAFE = { mid: [110, 230], wide: [170, 330] }[sz];
+      if (SAFE) { p.set('safeTop', SAFE[0]); p.set('safeBottom', SAFE[1]); }
       const q = p.toString();
       return `${location.origin}${GAME_PATH}${q ? '?' + q : ''}`;
     }
@@ -1222,6 +1233,7 @@
       localStorage.setItem('snake_res', $('resSelect').value);
       localStorage.setItem('snake_fps', $('fpsSelect').value);
       localStorage.setItem('snake_fit', $('fitSelect').value);
+      localStorage.setItem('snake_safe', $('safeSelect').value);
       gameSettingHint();
     }
 
@@ -1229,6 +1241,8 @@
       const r = localStorage.getItem('snake_res') || '';
       const f = localStorage.getItem('snake_fps') || '';
       const z = localStorage.getItem('snake_fit') || '';
+      const sf = localStorage.getItem('snake_safe') || '';
+      if (['', 'mid', 'wide'].includes(sf)) $('safeSelect').value = sf;
       if (['', '480', '540', '720', '1080', 'auto'].includes(r)) $('resSelect').value = r;
       if (['', '1', '0.85', '0.75', '0.65', '0.5', '0.4'].includes(z)) $('fitSelect').value = z;
       if (['', '30', '60'].includes(f)) $('fpsSelect').value = f;
