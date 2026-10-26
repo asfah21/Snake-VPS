@@ -6,10 +6,10 @@ html,body{margin:0;height:100%;height:100dvh;background:#02040a;overflow:hidden;
 #stage{position:absolute;left:50%;top:50%;width:1080px;height:1920px;transform-origin:50% 50%;transform:translate(-50%,-50%);background:#02040a;overflow:hidden}
 #stage canvas{display:block;width:100%;height:100%}
 :root{--ui:1;--safeT:0px;--safeB:0px}
-.box{position:absolute;border-radius:24px}
+.box{position:absolute;border-radius:20px}
 /* ===== HEADER (bar atas): ronde, panjang, apel, koneksi ===== */
-#topwrap{position:absolute;left:0;right:0;top:var(--safeT);display:flex;flex-direction:column;align-items:center;gap:.5em;padding:.9em 1.1em 0;box-sizing:border-box;font-size:calc(var(--ui)*30px);pointer-events:none}
-#top{position:relative;width:100%;display:flex;align-items:center;justify-content:space-between;gap:.6em;box-sizing:border-box;padding:.5em .9em .65em;border-radius:1em;background:linear-gradient(180deg,rgba(9,20,42,.96),rgba(5,11,24,.93));border:1px solid rgba(56,189,248,.35);overflow:hidden}
+#topwrap{position:absolute;left:0;right:0;top:var(--safeT);display:flex;flex-direction:column;align-items:center;gap:.45em;padding:.7em .85em 0;box-sizing:border-box;font-size:calc(var(--ui)*28px);pointer-events:none}
+#top{position:relative;width:100%;display:flex;align-items:center;justify-content:space-between;gap:.6em;box-sizing:border-box;padding:.45em .75em .55em;border-radius:.85em;background:linear-gradient(180deg,rgba(9,20,42,.97),rgba(5,11,24,.94));border:1px solid rgba(56,189,248,.28);overflow:hidden}
 #top .cell{display:flex;align-items:center;gap:.4em;min-width:0}
 #top .cell svg{width:1.3em;height:1.3em;flex:none}
 #top .lab{display:block;font-size:.5em;letter-spacing:.2em;text-transform:uppercase;font-weight:800;color:rgba(186,230,253,.8);line-height:1.15;white-space:nowrap}
@@ -117,9 +117,14 @@ body.lite #cdring{box-shadow:none}
 import * as THREE from 'three';
 const QS=new URLSearchParams(location.search), $=id=>document.getElementById(id);
 
-/* ================= LOGIKA GAME (AI ular: siklus Hamilton + jalan pintas aman) ================= */
+/* ================= LOGIKA GAME =================
+   Model gerak internal tetap berbasis sel/grid; visualnya diinterpolasi halus pada render.
+   AI meniru pola spiral melalui siklus Hamilton, dengan shortcut yang dinilai dan safety override.
+   Ini meniru pola yang terlihat, bukan membuktikan algoritma internal pemain pada video. */
 //LOGIC_START
-const PORT=QS.get('layout')?QS.get('layout')==='portrait':true,W=PORT?16:24,H=PORT?26:16,N=W*H, idx=new Int16Array(N), cyc=[];
+const PORT=QS.get('layout')?QS.get('layout')==='portrait':true,
+      // Board gameplay dikunci 16x16 agar komposisi dan pola ular konsisten di semua viewport.
+      W=16,H=16,N=W*H, idx=new Int16Array(N), cyc=[];
 document.body.classList.add(PORT?'p':'l');
 for(let x=0;x<W;x++)cyc.push([x,0]);
 for(let r=1;r<H;r++){if(r%2)for(let x=W-1;x>=1;x--)cyc.push([x,r]);else for(let x=1;x<W;x++)cyc.push([x,r]);}
@@ -171,7 +176,16 @@ const _cost=new Float64Array(NS),_stp=new Int32Array(NS),_apc=new Int32Array(NS)
 const _bodyOff=new Int32Array(N+1);
 const _fOcc=new Uint8Array(N),_fSeen=new Uint8Array(N),_fQ=new Int32Array(N);
 let _commit=-1;                                   // apel yang sedang dituju
-const AI_TUNE={arc0:.22,arc1:.62,hole0:.8,hole1:4.0,reach:.5,next:.4,turn:.3,enroute:3,commit:5};
+/* Profil perilaku adaptif berdasarkan okupansi papan. Ambang fase: 50%, 65%, 85%.
+   Bobot adalah heuristik awal, bukan hasil benchmark; keselamatan diperiksa terpisah. */
+const AI_PHASES=[
+  {name:'SHORT',max:.50,food:1.00,turn:.62,shortcut:.12,hole:0.75,reach:.38,lookahead:.24,commit:7,escape:3},
+  {name:'MEDIUM',max:.65,food:.78,turn:1.00,shortcut:.24,hole:1.15,reach:.65,lookahead:.38,commit:12,escape:5},
+  {name:'LONG',max:.85,food:.48,turn:1.25,shortcut:.42,hole:1.85,reach:1.00,lookahead:.52,commit:17,escape:8},
+  {name:'CRITICAL',max:1.01,food:.20,turn:1.55,shortcut:.70,hole:2.80,reach:1.45,lookahead:.70,commit:22,escape:12}
+];
+function aiPhase(length){const fill=length/N;return AI_PHASES.find(p=>fill<p.max)||AI_PHASES[AI_PHASES.length-1];}
+const AI_TUNE={arc0:.22,arc1:.62,hole0:.8,hole1:4.0,reach:.5,next:.4,turn:1.15,enroute:2.0,commit:18};
 
 function dirIndex(a,b){                           // arah a->b (sel bersebelahan), 4 = tidak ada
   const dx=(b%W)-(a%W),dy=((b/W)|0)-((a/W)|0);
@@ -244,6 +258,21 @@ function countTurns(head,cells,heading){
   return turns;
 }
 
+/* Validasi simulasi langkah demi langkah: tidak boleh menabrak dinding/badan.
+   Ekor boleh dimasuki hanya pada tick ketika ekor benar-benar bergerak dan ular tidak tumbuh. */
+function routeIsSafe(snk,cells,apl){
+  const body=snk.slice(),occupied=new Set(body);
+  for(const next of cells){
+    if(!Number.isInteger(next)||next<0||next>=N)return false;
+    const grow=apl.has(next),tail=body[body.length-1];
+    if(occupied.has(next)&&!(next===tail&&!grow))return false;
+    if(!grow){body.pop();occupied.delete(tail);}
+    body.unshift(next);occupied.add(next);
+    if(body.length>N)return false;
+  }
+  return true;
+}
+
 function nextMove(){
   const L=snake.length;
   if(L>=N)return -1;
@@ -254,6 +283,7 @@ function nextMove(){
   if(apples.size===0){_commit=-1;return cycleStep();}
   if(_commit>=0&&!apples.has(_commit))_commit=-1;
   const heading=L>1?dirIndex(snake[1],head):4;
+  const phase=aiPhase(L),fill=L/N;
 
   // --- 1) kandidat apel & jalur aman dari DP (tanpa lubang diperhitungkan dulu)
   dpPlan(snake,apples,heading);
@@ -281,12 +311,14 @@ function nextMove(){
   }
 
   // --- 2) evaluasi: simulasi tubuh setelah makan, ruang, lookahead apel berikutnya
-  const before=floodStats(snake).holes,fill=L/N;
-  const hw=AI_TUNE.hole0+AI_TUNE.hole1*fill*fill;
+  const before=floodStats(snake).holes;
+  const hw=AI_TUNE.hole0+AI_TUNE.hole1*fill*fill+phase.hole;
   let best=null,bestScore=INF;
   for(const cd of cands){
     const m=cd.cells.length;if(m<1)continue;
-    if(!legal(cd.cells[0])||dirIndex(head,cd.cells[0])===4)continue;      // jaring pengaman terakhir
+    if(!legal(cd.cells[0])||dirIndex(head,cd.cells[0])===4)continue;
+    // Hard constraint: validasi seluruh rute, bukan hanya langkah pertama.
+    if(!routeIsSafe(snake,cd.cells,apples))continue;
     const sim=simulate(snake,cd.cells,apples);
     const fs=floodStats(sim.ns);
     const holePen=Math.max(0,fs.holes-before)*hw;
@@ -295,11 +327,13 @@ function nextMove(){
     const freeAfter=N-sim.ns.length;
     const arc=((idx[sim.ns[sim.ns.length-1]]-idx[sim.ns[0]]+N)%N||N)-1;
     const arcRatio=freeAfter>0?Math.min(1,arc/freeAfter):1;
-    const arcNeed=AI_TUNE.arc0+AI_TUNE.arc1*fill;      // ular pendek: lubang cepat hilang -> longgar; papan makin penuh -> ketat
+    const arcNeed=AI_TUNE.arc0+AI_TUNE.arc1*fill+(phase.escape/100); // makin panjang, makin ketat menjaga ruang keluar
     const arcPen=(freeAfter>6&&arcRatio<arcNeed)?1000+(arcNeed-arcRatio)*1000:0;
     // kepala tidak boleh berada di ruang yang jauh lebih kecil daripada seluruh sel kosong
-    const reachPen=Math.max(0,(freeAfter*AI_TUNE.reach-fs.reach))*(1+fill*3);
-    const risk=((sim.ns.length<N-3&&fs.reach<4)?60:0)+arcPen+reachPen;
+    const reachPen=Math.max(0,(freeAfter*(AI_TUNE.reach+phase.reach*.08)-fs.reach))*(1+fill*3+phase.reach);
+    const minEscape=phase.escape;
+    const escapePen=(freeAfter>minEscape&&fs.reach<minEscape)?(minEscape-fs.reach)*phase.reach*18:0;
+    const risk=((sim.ns.length<N-3&&fs.reach<4)?60:0)+arcPen+reachPen+escapePen;
     let steps2=0;
     const eatenNow=new Set();for(const x of cd.cells)if(apples.has(x))eatenNow.add(x);
     const rest=new Set();for(const a of apples)if(!eatenNow.has(a))rest.add(a);
@@ -312,8 +346,18 @@ function nextMove(){
     }
     let cnt=0;for(const x of cd.cells)if(apples.has(x))cnt++;
     const turns=countTurns(head,cd.cells,heading);
-    const score=m+AI_TUNE.next*steps2+holePen+AI_TUNE.turn*turns
-               -AI_TUNE.enroute*(cnt-1)+risk-(cd.a===_commit?AI_TUNE.commit:0);
+    // Penalti shortcut: jalur yang jauh menyimpang dari urutan siklus diberi biaya ekstra.
+    // Ini menjaga ritme spiral yang terlihat pada video; penalti tidak boleh mengalahkan risiko tabrakan.
+    const cycleOffset=(idx[cd.a]-hi+N)%N;
+    const skipped=Math.max(0,cycleOffset-m);
+    const spiralPenalty=cd.kind==='cyc'?0:Math.min(skipped, Math.max(0,freeAfter))*phase.shortcut;
+
+    // Fase pendek lebih berani mengejar makanan; fase panjang makin mengutamakan ruang dan survival.
+    const foodReward=cnt*phase.food*4;
+    const switchingPenalty=(_commit>=0&&apples.has(_commit)&&cd.a!==_commit)?phase.commit*.65:0;
+    const score=m+phase.lookahead*steps2+holePen+phase.turn*turns+spiralPenalty
+               -AI_TUNE.enroute*(cnt-1)-foodReward+risk
+               -(cd.a===_commit?phase.commit:0)+switchingPenalty;
     cd.score=score;
     if(score<bestScore){bestScore=score;best=cd;}
   }
@@ -515,7 +559,13 @@ const UI={top:.06,bottom:.175,side:.022},FILL=.96;   // FILL<1 = papan di-zoom s
 const FIT=[];for(const x of[-W/2-.55,W/2+.55])for(const z of[-H/2-.55,H/2+.55])for(const y of[-.5,2.2])FIT.push(new THREE.Vector3(x,y,z));
 const _v=new THREE.Vector3();
 function bounds(){let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;for(const p of FIT){_v.copy(p).project(cam);if(_v.x<minX)minX=_v.x;if(_v.x>maxX)maxX=_v.x;if(_v.y<minY)minY=_v.y;if(_v.y>maxY)maxY=_v.y;}return{minX,maxX,minY,maxY};}
-function placeCam(d){cam.position.set(0,d*.82,d*.57+1);cam.lookAt(0,0,-H*.04);cam.updateMatrixWorld();}
+function placeCam(d){
+  // Sudut three-quarter yang lebih tinggi: petak 16x16 terbaca jelas di layar portrait,
+  // tetapi masih menyisakan kedalaman 3D pada ular dan pinggiran papan.
+  cam.position.set(0,d*1.18,d*.34+1);
+  cam.lookAt(0,0,-H*.025);
+  cam.updateMatrixWorld();
+}
 // Panggung mengikuti viewport: lebar tetap 1080 unit, tinggi menyesuaikan rasio layar.
 // Board tetap proporsional karena kamera memakai aspek viewport, bukan ditarik/stretch.
 let _lockA=0,_uiScale=1,_wide=false;
@@ -774,14 +824,15 @@ sc.add(slab);
 const THEMES = [
   // Ronde 1: Board Obsidian Gelap -> Ular Kuning Emas Solar Radiant (Super Menyala & Kontras)
   {
-    name: 'Solar Gold on Deep Obsidian',
+    name: 'Warm Walnut Checkerboard',
     isDark: true,
     pat: (u, j) => (u % 1.5) / 1.5 < 0.48 ? [0.12, 1.0, 0.54] : [0.10, 1.0, 0.44 + 0.04 * Math.sin(j * 1.2)],
     head: [0.12, 1.0, 0.52],
-    bg: '#0a0f1d', alt: '#111a30',
-    line: 'rgba(56, 189, 248, 0.28)', cross: '#f59e0b', dot: '#38bdf8',
-    bevel: 'rgba(255, 255, 255, 0.08)',
-    trim: 0xf59e0b, slab: 0x1e293b, hull: 0x090d16
+    // Petak catur cokelat bertingkat, garis tipis dan ular emas tetap kontras.
+    bg: '#65432f', alt: '#80583c',
+    line: 'rgba(35, 20, 12, 0.24)', cross: '#d6a56d', dot: '#e2bd8b',
+    bevel: 'rgba(255, 235, 205, 0.08)',
+    trim: 0xd6a56d, slab: 0x4a3023, hull: 0x24170f
   },
   // Ronde 2: Board Arctic White Terang -> Ular Royal Cobalt Blue Pekat (Super Tajam & Kontras)
   {
