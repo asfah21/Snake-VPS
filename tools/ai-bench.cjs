@@ -12,7 +12,7 @@ const code = src.slice(a + '//LOGIC_START'.length, b);
 const fly = new Set();
 const api = new Function('QS', 'document', 'console', 'fly', code + `
   return {
-    W,H,N,step,reset,
+    W,H,N,step,reset,setTrace:(a)=>{_aiTrace=a},
     get snake(){return snake}, get apples(){return apples}, get occ(){return occ},
     get eaten(){return eaten}
   };
@@ -60,23 +60,51 @@ function dmin() {
   return best;
 }
 
-let wins = 0, deaths = 0, collisions = 0, lenSum = 0, eats = 0, closeRuns = 0;
-const deathLens = [], lat = [];
+let wins = 0, deaths = 0, collisions = 0, lenSum = 0, eats = 0, closeRuns = 0, closeEarly = 0;
+const hist = [];
+const deathLens = [], lat = [], latEarly = [];
+const EARLY = 90;   // "fase awal" = panjang < 35% papan (256)
 for (let r = 0; r < ROUNDS; r++) {
   api.reset(); api.apples.clear(); fly.clear();
   let ended = false, lastLen = api.snake.length, since = 0, run = 0;
   for (let t = 0; t < MAXT; t++) {
     while (api.apples.size < 2) { const c = pickFreeCell(); if (c < 0) break; api.apples.add(c); }
     const d = dmin();
+    const tr = process.env.TRACE ? [] : null;
+    if (tr) api.setTrace(tr);
     const res = api.step();
+    if (tr) api.setTrace(null);
+    if (tr) hist.push({ t, len: api.snake.length, tr });
+    if (tr && hist.length > 40) hist.shift();
+    if (tr && process.env.HEAD && t < 45) {
+      const pk = tr.find(x => x.pick !== undefined);
+      const best3 = tr.filter(x => x.k !== undefined).sort((a, b) => a.sc - b.sc).slice(0, 3)
+        .map(x => x.k + ':m' + x.m + ':sc' + x.sc).join(' | ');
+      console.log('  t=' + t, 'len=' + api.snake.length, 'dmin=' + d, 'mv=' + res,
+        'pick=' + (pk ? pk.pick : '?'), '||', best3);
+    }
     since++;
     if (new Set(api.snake).size !== api.snake.length) { collisions++; ended = true; break; }
-    if (api.snake.length > lastLen) { lat.push(since); since = 0; lastLen = api.snake.length; eats++; run = 0; }
-    else if (d <= 2 && api.snake.length / api.N < .6) { if (++run > 4) { closeRuns++; run = 0; } }
+    if (api.snake.length > lastLen) {
+      lat.push(since); if (lastLen < EARLY) latEarly.push(since);
+      since = 0; lastLen = api.snake.length; eats++; run = 0;
+    }
+    else if (d <= 2 && api.snake.length / api.N < .6) {
+      if (++run > 4) { (api.snake.length < EARLY ? (closeEarly++) : (closeRuns++)); run = 0; }
+    }
     else run = 0;
     if (res === 2) {
       if (api.snake.length >= api.N) wins++; else {
         deaths++; deathLens.push(api.snake.length);
+        if (process.env.TRACE) {
+          for (const h of hist.slice(-8)) {
+            const candsTxt = h.tr.filter(x => x.k !== undefined).length;
+            const pick = h.tr.find(x => x.pick !== undefined);
+            console.log('   t=' + h.t, 'len=' + h.len, 'cands=' + candsTxt, 'pick=' + (pick ? pick.pick : '?'),
+              h.tr.filter(x => x.k !== undefined).sort((a, b) => a.sc - b.sc).slice(0, 2)
+                .map(x => x.k + ':m' + x.m + ':sc' + x.sc).join(' | '));
+          }
+        }
         if (process.env.DUMP) {
           const { W, H } = api, occ = api.occ, snake = api.snake;
           const head = snake[0], tail = snake[snake.length - 1];
@@ -104,5 +132,8 @@ const avgLat = lat.reduce((s, v) => s + v, 0) / (lat.length || 1);
 console.log(path.basename(file), '| ronde', ROUNDS);
 console.log('  papan penuh :', wins, '| berhenti:', deaths, '| tabrakan:', collisions);
 console.log('  panjang akhir:', deathLens.join(', '), '| rata2', (lenSum / ROUNDS).toFixed(1), '/', api.N);
+const avgEarly = latEarly.reduce((s, v) => s + v, 0) / (latEarly.length || 1);
 console.log('  rata2 langkah/makan:', avgLat.toFixed(2), '| total makan', eats);
+console.log('  FASE AWAL (len<' + EARLY + '): rata2', avgEarly.toFixed(2), 'langkah/apel dari', latEarly.length,
+  'makan | apel <=2 diabaikan:', closeEarly);
 console.log('  apel <=2 diabaikan >4 langkah (fill<60%):', closeRuns);

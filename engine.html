@@ -245,12 +245,40 @@ function bfs(start,allow){
       lebih dekat. Jadi spiral dipakai untuk MENGISI kekosongan, bukan alasan melewati apel
       terdekat atau memaksakan apel lama.
 
-   Hasil uji headless (tools/ai-bench.cjs, 16x16, 2 apel aktif): 8/8 ronde menuntaskan papan penuh
-   tanpa tabrakan diri, rata-rata ~27 langkah per apel. */
+   4) FASE PERILAKU (yang membuat ular terasa "human like"):
+      - BEBAS-ARAH (panjang <= HUNT_LEN=48): ular hanya mengejar APEL TERDEKAT memakai BFS bebas
+        arah (boleh melawan urutan siklus). Tidak ada kewajiban membentuk spiral saat papan lapang.
+      - DISIPLIN SIKLUS (> 48): kembali mengikuti jalur siklus; "kink" dari fase bebas-arah hilang
+        sendiri karena ekor terus bergerak (<= L langkah).
+      - RAPI/SPIRAL (okupansi >= ~55%): penjaga koridor (arcPen) dan penalti menyimpang spiral
+        hidup penuh, sehingga papan ditutup rapi mengikuti cincin spiral sampai 256 sel.
+      Kandidat "FILL" (ikuti siklus tanpa target apel) hanya dipakai bila tidak ada jalur apel yang
+      valid - dulu ia ikut bersaing skor dan selalu menang, itulah sebab ular terlihat "spiral"
+      padahal apel ada di dekatnya.
+
+   Uji headless (tools/ai-bench.cjs, 16x16, 2 apel aktif, 16 ronde): 16/16 papan penuh, tanpa
+   tabrakan diri; fase awal ~22.7 langkah/apel, keseluruhan ~20.7 langkah/apel. */
 let _aiTrace=null;                                // hook diagnostik untuk harness uji (null di produksi)
 /* Batas lompatan siklus saat mengejar apel (dalam sel siklus). Default praktis tanpa batas;
    bisa dipersempit lewat ?skip=8 bila ingin ular lebih "disiplin" mengikuti spiral. */
 const MAX_SKIP=Math.max(0,QS.has('skip')?+QS.get('skip'):9999);
+/* ===== DUA FASE PERILAKU (berbasis okupansi papan) =====
+   BEBAS  (fill < SPIRAL_FROM)        : ular hanya mengejar apel terdekat; jalan pintas lintas cincin
+                                        tidak dihukum, tidak ada kewajiban membentuk spiral.
+   RAPI   (fill >= SPIRAL_FROM+RAMPA) : kewajiban spiral aktif penuh -> penutupan papan rapi/elegan.
+   Di antara keduanya ada rampa halus supaya peralihan tidak mendadak. ?spiral=0.55 */
+const SPIRAL_FROM=Math.max(0,Math.min(1,QS.has('spiral')?+QS.get('spiral'):.55));
+const SPIRAL_RAMP=Math.max(.02,QS.has('ramp')?+QS.get('ramp'):.12);
+/* Ambang mode BEBAS-ARAH (HUNT): ular boleh meninggalkan urutan siklus untuk apel terdekat.
+   Hanya berlaku di fase lapang; di atas ambang ini ular kembali disiplin siklus. ?hunt=0.45 */
+const HUNT_FILL=Math.max(0,Math.min(1,QS.has('hunt')?+QS.get('hunt'):.45));
+/* Gerbang 1 langkah untuk HUNT: setelah melangkah, kepala harus masih memegang >=fHUNT bagian
+   ruang kosong (mencegah masuk kantong/jalan buntu). ?huntreach=0.65 */
+const HUNT_REACH=Math.max(.2,Math.min(1,QS.has('huntreach')?+QS.get('huntreach'):.65));
+/* Batas panjang badan untuk HUNT (0 = mati). Badan pendek boleh "berkeliaran" bebas lalu kembali
+   rapi dalam beberapa langkah; badan panjang tidak boleh keluar dari urutan siklus.
+   Uji headless 16 ronde: 16/16 papan penuh, fase awal 22.7 langkah/apel (vs 33.8 tanpa HUNT). */
+const HUNT_LEN=Math.max(0,QS.has('huntlen')?+QS.get('huntlen'):48);
 const INF=1e9,STEP_C=100,NS=N*5;
 const _cost=new Float64Array(NS),_stp=new Int32Array(NS),_apc=new Int32Array(NS),_par=new Int32Array(NS);
 const _bodyOff=new Int32Array(N+1);
@@ -274,9 +302,13 @@ function dirIndex(a,b){                           // arah a->b (sel bersebelahan
 
 /* DP jalur MONOTON (offset siklus selalu bertambah) dari kepala. Biaya = langkah*100 + penalti belok.
    Penalti belok lebih besar bila belok terjadi di awal -> belok ditunda selambat mungkin. */
-function dpPlan(snk,apl,dir0){
+function dpPlan(snk,apl,dir0,strict){
   const L=snk.length,hi=idx[snk[0]];
   for(let t=0;t<L;t++){const o=(idx[snk[L-1-t]]-hi+N)%N;_bodyOff[t]=o===0?N:o;}
+  /* strict = badan TIDAK lagi monoton siklus (habis langkah bebas-arah). Mode ini memakai
+     okupansi badan yang sebenarnya (semua sel badan padat, ekor tetap boleh), sehingga jumlah
+     kandidat jalur tidak kolaps setelah fase bebas-arah selesai. */
+  if(strict){_vOcc.fill(0);for(let i=0;i<L-1;i++)_vOcc[snk[i]]=1;}
   _cost.fill(INF);
   const s0=snk[0]*5+dir0;_cost[s0]=0;_stp[s0]=0;_apc[s0]=0;_par[s0]=-1;
   for(let o=0;o<N;o++){
@@ -292,7 +324,8 @@ function dpPlan(snk,apl,dir0){
         const m=ny*W+nx,om=(idx[m]-hi+N)%N;
         if(om<=o)continue;
         const g=apl.has(m)?1:0;
-        if(!(om<T||(om===T&&!g)))continue;           // hanya sel kosong (ekor boleh bila tidak tumbuh)
+        // normal: offset<T = kosong (ekor boleh bila tidak tumbuh) | strict: okupansi badan nyata
+        if(strict?_vOcc[m]:!(om<T||(om===T&&!g)))continue;
         let nc=cs+STEP_C;
         if(d!==4&&d!==k)nc+=8+14*(1-Math.min(s,14)/14);
         const ns=m*5+k;
@@ -349,6 +382,18 @@ function floodSolid(snk){
   }
   return {reach,holes:Math.max(0,(N-L)-reach)};
 }
+/* Badan monoton siklus? Offset sel badan harus naik tegas dari ekor ke leher. */
+function bodyMonotone(snk){
+  const L=snk.length;
+  if(L<3)return true;
+  const hi=idx[snk[0]];let prev=-1;
+  for(let i=L-1;i>=1;i--){
+    const o=(idx[snk[i]]-hi+N)%N;
+    if(o<=prev)return false;
+    prev=o;
+  }
+  return true;
+}
 function countTurns(head,cells,heading){
   let d=heading,turns=0,prevC=head;
   for(let i=0;i<cells.length;i++){const k=dirIndex(prevC,cells[i]);if(d!==4&&k!==d)turns++;d=k;prevC=cells[i];}
@@ -370,6 +415,30 @@ function routeIsSafe(snk,cells,apl){
   return true;
 }
 
+/* BFS bebas arah dari kepala (sel badan = dinding, KECUALI ekor yang akan bergeser).
+   Dipakai mode BEBAS-ARAH (HUNT) di fase papan lapang. */
+function bfsFrom(){
+  const tailC=snake[snake.length-1];
+  _dist.fill(-1);_parent.fill(-1);
+  let h=0,t=0;_q[t++]=snake[0];_dist[snake[0]]=0;
+  while(h<t){
+    const c=_q[h++],cx=c%W,cy=(c/W)|0,d1=_dist[c]+1;
+    for(let k=0;k<4;k++){
+      const x=cx+DIRS[k][0],y=cy+DIRS[k][1];
+      if(x<0||y<0||x>=W||y>=H)continue;
+      const m=y*W+x;
+      if(_dist[m]>=0)continue;
+      if(occ[m]&&m!==tailC)continue;
+      _dist[m]=d1;_parent[m]=c;_q[t++]=m;
+    }
+  }
+}
+function pathTo(target){
+  if(_dist[target]<0)return null;
+  const out=[];let c=target;
+  while(c!==snake[0]){out.push(c);c=_parent[c];if(c<0)return null;}
+  return out.reverse();
+}
 /* Jaring pengaman terakhir: tidak ada kandidat apel yang lolos uji keselamatan.
    Pilih satu langkah legal yang memaksimalkan ruang terjangkau (bertahan hidup);
    langkah yang langsung memakan apel diberi prioritas. */
@@ -410,17 +479,33 @@ function nextMove(){
   }
   const heading=L>1?dirIndex(snake[1],head):4;
   const phase=aiPhase(L),fill=L/N;
-  /* Dua bobot berbasis okupansi (perbaikan bug "apel dekat diabaikan"):
+  /* Dua bobot berbasis okupansi:
      commitW   : bonus target lama mengecil saat papan masih lapang -> tidak memaksa apel lama.
-     spiralGate: penalti "menyimpang dari spiral" mati di bawah ~30% okupansi. Spiral dipakai
-                 untuk MENGISI kekosongan, bukan alasan melewati apel terdekat. */
+     spiralW   : 0 = fase BEBAS (kejar apel terdekat, tanpa kewajiban spiral),
+                 1 = fase RAPI (wajib menutup papan mengikuti cincin spiral).
+                 Naik halus mulai SPIRAL_FROM sampai SPIRAL_FROM+SPIRAL_RAMP. */
   const commitW=phase.commit*Math.min(1,fill*2.2);
-  const spiralGate=Math.min(1,Math.max(0,(fill-.30)/.50));
+  const spiralW=Math.min(1,Math.max(0,(fill-SPIRAL_FROM)/SPIRAL_RAMP));
+  const spiralGate=spiralW;
 
   const cands=[];
 
+  /* --- 0) BEBAS-ARAH (HUNT): hanya di fase papan lapang. Jalur BFS terpendek ke apel terdekat,
+     boleh "mundur" dari urutan siklus, sehingga apel di dekat kepala tidak diabaikan. */
+  if(HUNT_LEN>0&&L<=HUNT_LEN&&fill<HUNT_FILL){
+    bfsFrom();
+    const near=[];
+    for(const a of apples)if(_dist[a]>=0)near.push({a,d:_dist[a]});
+    near.sort((x,y)=>x.d-y.d);
+    for(let i=0;i<near.length&&i<3;i++){
+      const cells=pathTo(near[i].a);
+      if(cells&&cells.length)cands.push({a:near[i].a,cells,kind:'greedy'});
+    }
+  }
+
   // --- 1) jalur DP monoton siklus ke apel (dengan jalan pintas yang dinilai)
-  dpPlan(snake,apples,heading);
+  const mono=bodyMonotone(snake);            // badan masih searah siklus?
+  dpPlan(snake,apples,heading,!mono);
   const dpList=[];
   for(const a of apples){
     const st=bestAt(a);if(st<0)continue;
@@ -450,23 +535,27 @@ function nextMove(){
     if(ok)cands.push({a,cells,kind:'cyc'});
   }
 
-  /* --- 3b) FILL murni: ikuti siklus beberapa langkah tanpa target apel. Selalu disediakan sebagai
-     jaring pengaman agar ular tetap punya langkah "mengisi kekosongan" yang aman. */
+  /* --- 3b) FILL: ikuti siklus beberapa langkah. Ini PENGGANTI saja, bukan pesaing skor:
+     kandidat ini hanya dipakai bila tidak ada satu pun kandidat apel yang lolos validasi.
+     (Dulu kandidat ini ikut bersaing skor dan karena panjangnya dipotong 10 langkah, dia selalu
+     menang atas jalur apel yang lebih panjang -> ular terlihat "spiral" padahal apel ada di dekat.) */
   {
     const cells=[],lim=Math.min(10,Math.max(1,N-snake.length));
+    let hit=-1;
     for(let i=1;i<=lim;i++){
       const x=cell((hi+i)%N);
       if(occ[x]&&!(x===tail&&!apples.has(x)))break;
       cells.push(x);
-      if(apples.has(x))break;
+      if(apples.has(x)){hit=x;break;}
     }
-    if(cells.length)cands.push({a:-1,cells,kind:'fill'});
+    if(cells.length)cands.push({a:hit,cells,kind:hit>=0?'cyc':'fill'});
   }
 
   // --- 3) evaluasi: simulasi tubuh setelah makan, ruang, lookahead apel berikutnya
   const before=floodStats(snake).holes;
   const hw=AI_TUNE.hole0+AI_TUNE.hole1*fill*fill+phase.hole;
-  let best=null,bestScore=INF;
+  let best=null,bestScore=INF;              // kandidat menuju apel (prioritas utama)
+  let bestFill=null,bestFillScore=INF;      // kandidat FILL (hanya bila tidak ada apel valid)
   for(const cd of cands){
     const m=cd.cells.length;if(m<1)continue;
     if(!legal(cd.cells[0])||dirIndex(head,cd.cells[0])===4)continue;
@@ -481,9 +570,21 @@ function nextMove(){
     const arc=((idx[sim.ns[sim.ns.length-1]]-idx[sim.ns[0]]+N)%N||N)-1;
     const arcRatio=freeAfter>0?Math.min(1,arc/freeAfter):1;
     const arcNeed=AI_TUNE.arc0+AI_TUNE.arc1*fill+(phase.escape/100); // makin panjang, makin ketat menjaga ruang keluar
-    /* Penjaga koridor maju: SELALU aktif (tidak diskalakan fill). Ini yang mencegah jalan pintas
-       raksasa "melompati" siklus sehingga ruang di belakang kepala jadi buntu (penyebab mati dini). */
-    const arcPen=(freeAfter>6&&arcRatio<arcNeed)?(1000+(arcNeed-arcRatio)*1000):0;
+    /* Penjaga koridor maju hanya WAJIB di fase RAPI (spiralW). Saat papan masih lega nilainya 0
+       sehingga ular bebas memotong lintasan (termasuk melompat antar cincin) demi apel terdekat.
+       Tanpa ini, apel yang fisiknya dekat tapi beda cincin "dihukum" dan ular malah spiral. */
+    const arcPen=(spiralW>0&&freeAfter>6&&arcRatio<arcNeed)?(1000+(arcNeed-arcRatio)*1000)*spiralW:0;
+    /* Gerbang keselamatan 1 LANGKAH (hanya langkah pertama yang dieksekusi, lalu rencana dibuat
+       ulang): wajib untuk jalur bebas-arah (HUNT) dan untuk SEMUA kandidat saat badan tidak lagi
+       monoton siklus. Pada kondisi itu jaminan "aman secara konstruksi" milik siklus tidak berlaku,
+       sehingga langkah yang masuk kantong / jalan buntu harus ditolak sebelum dieksekusi. */
+    if(cd.kind==='greedy'||!mono){
+      if(L+1<N-2){
+        const one=simulate(snake,[cd.cells[0]],apples);
+        const free1=N-one.ns.length;
+        if(floodSolid(one.ns).reach<Math.max(2,Math.ceil(free1*HUNT_REACH)))continue;
+      }
+    }
     // kepala tidak boleh berada di ruang yang jauh lebih kecil daripada seluruh sel kosong
     const reachPen=Math.max(0,(freeAfter*(AI_TUNE.reach+phase.reach*.08)-fs.reach))*(1+fill*3+phase.reach);
     const minEscape=phase.escape;
@@ -514,10 +615,12 @@ function nextMove(){
                -AI_TUNE.enroute*(cnt-1)-foodReward+risk
                -(aimed&&_commit===cd.a?commitW:0)+switchPen;
     cd.score=score;
-    if(score<bestScore){bestScore=score;best=cd;}
+    if(cd.a<0){if(score<bestFillScore){bestFillScore=score;bestFill=cd;}}
+    else if(score<bestScore){bestScore=score;best=cd;}
     if(_aiTrace)_aiTrace.push({k:cd.kind,m,sc:+score.toFixed(2),ok:1,reach:fs.reach,need:0,holes:fs.holes,fa:freeAfter});
   }
-  if(_aiTrace)_aiTrace.push({pick:best?'score':'none',len:L,before,cands:cands.length});
+  if(_aiTrace)_aiTrace.push({pick:best?'score':bestFill?'fill':'none',len:L,before,cands:cands.length});
+  if(!best)best=bestFill;                    // tidak ada jalur apel valid -> isi kekosongan
   if(!best){const e=escapeMove();return e>=0?e:cycleStep();}   // jaring pengaman terakhir
   if(best.a>=0)_commit=best.a;               // langkah FILL murni tidak mengubah target apel
   return best.cells[0];
