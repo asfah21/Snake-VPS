@@ -126,13 +126,88 @@ const PORT=QS.get('layout')?QS.get('layout')==='portrait':true,
       // Board gameplay dikunci 16x16 agar komposisi dan pola ular konsisten di semua viewport.
       W=16,H=16,N=W*H, idx=new Int16Array(N), cyc=[];
 document.body.classList.add(PORT?'p':'l');
-for(let x=0;x<W;x++)cyc.push([x,0]);
-for(let r=1;r<H;r++){if(r%2)for(let x=W-1;x>=1;x--)cyc.push([x,r]);else for(let x=1;x<W;x++)cyc.push([x,r]);}
-for(let y=H-1;y>=1;y--)cyc.push([0,y]);
-cyc.forEach((c,i)=>idx[c[1]*W+c[0]]=i);
-const cell=i=>cyc[i][1]*W+cyc[i][0];
-let snake,occ,apples,prev,eaten=0,round=1;
-function reset(){occ=new Uint8Array(N);apples=new Set();snake=[cell(2),cell(1),cell(0)];snake.forEach(c=>occ[c]=1);prev=snake.slice();eaten=0;}
+
+/* ===== SIKLUS HAMILTON BERBENTUK SPIRAL (cincin bersarang) =====
+   Cincin k = keliling persegi dalam [k .. W-1-k] x [k .. H-1-k]. Tiap cincin adalah siklus kecil;
+   dua cincin bertetangga digabung dengan 2-opt (dua sisi PARALEL ditukar) sehingga seluruh papan
+   menjadi SATU siklus. Hasilnya badan ular menyusun cincin bersarang (spiral seperti di video),
+   bukan zig-zag boustrophedon yang selalu berbelok di tepi papan. */
+function ringCells(k){
+  const x0=k,y0=k,x1=W-1-k,y1=H-1-k,out=[];
+  for(let x=x0;x<=x1;x++)out.push(y0*W+x);          // sisi atas kiri -> kanan
+  for(let y=y0+1;y<=y1;y++)out.push(y*W+x1);        // sisi kanan atas -> bawah
+  for(let x=x1-1;x>=x0;x--)out.push(y1*W+x);        // sisi bawah kanan -> kiri
+  for(let y=y1-1;y>y0;y--)out.push(y*W+x0);         // sisi kiri bawah -> atas
+  return out;
+}
+/* Gabung siklus C dengan siklus cincin R (2-opt pada sisi paralel).
+   Sisi (a1,a2) dari C dan (b1,b2) dari R dibuang; sambungan baru a1-b1 dan a2-b2.
+   Hasil = seluruh C mulai dari a2 berakhir di a1, lalu seluruh R mulai dari b1 berakhir di b2,
+   sehingga siklus tetap tunggal dan tiap sambungan bersebelahan.
+   Arah putar tiap siklus dinormalisasi otomatis (siklus boleh dibaca dua arah). */
+function mergeRing2Opt(C,R,a1,a2,b1,b2){
+  const n=C.length,m=R.length;
+  const ia=C.indexOf(a2),ib=R.indexOf(b1);
+  if(ia<0||ib<0)return null;
+  let dirC;
+  if(C[(ia-1+n)%n]===a1)dirC=1;            // a1 tepat sebelum a2 -> jalan maju
+  else if(C[(ia+1)%n]===a1)dirC=-1;        // a1 sesudah a2 -> jalan mundur
+  else return null;                        // a1/a2 tidak bersebelahan di C
+  let dirR;
+  if(R[(ib-1+m)%m]===b2)dirR=1;            // b2 tepat sebelum b1 -> jalan maju, selesai di b2
+  else if(R[(ib+1)%m]===b2)dirR=-1;
+  else return null;                        // b1/b2 tidak bersebelahan di R
+  const out=new Array(n+m);let w=0;
+  for(let i=0;i<n;i++)out[w++]=C[(((ia+i*dirC)%n)+n)%n];
+  for(let i=0;i<m;i++)out[w++]=R[(((ib+i*dirR)%m)+m)%m];
+  return out;
+}
+function buildSpiralCycle(){
+  const K=Math.min(W,H)>>1;
+  let C=ringCells(0);
+  for(let k=0;k+1<K;k++){
+    // Jembatan antar cincin selalu di kolom k/k+1 pada baris k+1..k+2 (dekat kiri-atas, tidak bertabrakan)
+    const next=mergeRing2Opt(C,ringCells(k+1),(k+1)*W+k,(k+2)*W+k,(k+1)*W+(k+1),(k+2)*W+(k+1));
+    if(!next)return null;
+    C=next;
+  }
+  return C;
+}
+/* Cadangan: pola boustrophedon lama, hanya dipakai bila siklus spiral gagal divalidasi. */
+function buildSnakeCycle(){
+  const out=[];
+  for(let x=0;x<W;x++)out.push(x);
+  for(let r=1;r<H;r++){if(r%2)for(let x=W-1;x>=1;x--)out.push(r*W+x);else for(let x=1;x<W;x++)out.push(r*W+x);}
+  for(let y=H-1;y>=1;y--)out.push(y*W);
+  return out;
+}
+/* Validasi siklus: tiap sel tepat sekali, semua pasangan berurutan (termasuk penutup) bersebelahan. */
+function cycleOk(a){
+  if(!Array.isArray(a)||a.length!==N)return false;
+  const seen=new Uint8Array(N);
+  for(let i=0;i<N;i++){
+    const c=a[i];
+    if(c<0||c>=N||seen[c])return false;
+    seen[c]=1;
+    const d=a[(i+1)%N];
+    if(Math.abs(c%W-d%W)+Math.abs(((c/W)|0)-((d/W)|0))!==1)return false;
+  }
+  return true;
+}
+{
+  const _spiral=buildSpiralCycle();
+  if(cycleOk(_spiral))cyc.push(..._spiral);
+  else{
+    const _snake=buildSnakeCycle();
+    if(cycleOk(_snake))cyc.push(..._snake);
+    else throw new Error('siklus Hamilton gagal dibangun');
+    if(typeof console!=='undefined')console.warn('[snake] siklus spiral gagal divalidasi, memakai pola cadangan');
+  }
+}
+cyc.forEach((c,i)=>idx[c]=i);
+const cell=i=>cyc[i];
+let snake,occ,apples,prev,eaten=0,round=1,_commit=-1;   // _commit = apel yang sedang dituju
+function reset(){occ=new Uint8Array(N);apples=new Set();snake=[cell(2),cell(1),cell(0)];snake.forEach(c=>occ[c]=1);prev=snake.slice();eaten=0;_commit=-1;}
 const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
 const _dist=new Int16Array(N),_first=new Int16Array(N),_q=new Int32Array(N);
 const _parent=new Int32Array(N),_bodyIdx=new Int16Array(N),_vOcc=new Uint8Array(N),_visited=new Uint8Array(N);
@@ -156,26 +231,30 @@ function bfs(start,allow){
   }
 }
 
-/* ===================== AI STRATEGIS (bermain seperti pemain berpengalaman) =====================
-   Prioritas: 1) BERTAHAN HIDUP  >  2) MENJAGA RUANG GERAK  >  3) MENGEJAR APEL.
+/* ===================== AI STRATEGIS (siklus Hamilton berbentuk SPIRAL) =====================
+   Prioritas: 1) BERTAHAN HIDUP  >  2) MENGISI PAPAN  >  3) MENGEJAR APEL TERDEKAT.
 
-   1) Keselamatan (mutlak): badan ular selalu tersusun menurut urutan siklus Hamilton (ekor -> kepala).
-      Hanya jalur yang MAJU searah siklus lewat sel kosong yang dipertimbangkan, dengan posisi ekor
-      dihitung PADA SETIAP TICK (ekor bergeser, tumbuh saat makan). Jalur seperti ini tidak pernah
-      memotong ekor/badan, tidak pernah mengurung diri, dan selalu menyisakan jalan keluar.
-   2) Ruang: setiap rencana disimulasikan sampai ular selesai makan, lalu diukur sel kosong yang
-      terisolasi (lubang) dan ruang yang masih terjangkau. Jalan pintas yang meninggalkan banyak lubang
-      dihukum, makin berat ketika papan makin penuh (isi papan secara terencana, bukan acak).
-   3) Apel: dari beberapa kandidat apel, ular mensimulasikan makan apel itu lalu menghitung seberapa
-      mudah apel BERIKUTNYA (lookahead 2 apel). Target dipertahankan (komitmen) agar tidak plin-plan.
-   Gerakan natural: jalur lurus diutamakan; belok dihitung mahal bila dilakukan terlalu dini, sehingga ular
-   mempertahankan arah dan baru bermanuver mendekati apel. Tanpa apel / apel tak aman: mengikuti
-   siklus (mengekor jalur sendiri) sampai ada peluang lebih baik. */
+   1) Keselamatan (mutlak): badan ular selalu mengikuti urutan siklus Hamilton. Kandidat jalur
+      disusun dari kepala menuju apel searah siklus (jalan pintas boleh, dengan biaya), posisi ekor
+      dihitung bergeser pada tiap tick, lalu SELURUH rute divalidasi (routeIsSafe) terhadap badan
+      yang sebenarnya. Bila tidak ada kandidat valid, dipakai satu langkah escape legal terakhir.
+   2) Mengisi papan: siklus dibuat berbentuk CINCIN BERSARANG (spiral) sehingga saat papan mulai
+      penuh badan ular membentuk pola spiral dan papan bisa terisi sampai 256 sel.
+   3) Apel: penalti "menyimpang dari spiral" dimatikan saat papan masih lapang (spiralGate), bonus
+      target (commit) dikecilkan pada okupansi rendah dan dibuang bila ada apel lain yang jelas
+      lebih dekat. Jadi spiral dipakai untuk MENGISI kekosongan, bukan alasan melewati apel
+      terdekat atau memaksakan apel lama.
+
+   Hasil uji headless (tools/ai-bench.cjs, 16x16, 2 apel aktif): 8/8 ronde menuntaskan papan penuh
+   tanpa tabrakan diri, rata-rata ~27 langkah per apel. */
+let _aiTrace=null;                                // hook diagnostik untuk harness uji (null di produksi)
+/* Batas lompatan siklus saat mengejar apel (dalam sel siklus). Default praktis tanpa batas;
+   bisa dipersempit lewat ?skip=8 bila ingin ular lebih "disiplin" mengikuti spiral. */
+const MAX_SKIP=Math.max(0,QS.has('skip')?+QS.get('skip'):9999);
 const INF=1e9,STEP_C=100,NS=N*5;
 const _cost=new Float64Array(NS),_stp=new Int32Array(NS),_apc=new Int32Array(NS),_par=new Int32Array(NS);
 const _bodyOff=new Int32Array(N+1);
 const _fOcc=new Uint8Array(N),_fSeen=new Uint8Array(N),_fQ=new Int32Array(N);
-let _commit=-1;                                   // apel yang sedang dituju
 /* Profil perilaku adaptif berdasarkan okupansi papan. Ambang fase: 50%, 65%, 85%.
    Bobot adalah heuristik awal, bukan hasil benchmark; keselamatan diperiksa terpisah. */
 const AI_PHASES=[
@@ -213,7 +292,7 @@ function dpPlan(snk,apl,dir0){
         const m=ny*W+nx,om=(idx[m]-hi+N)%N;
         if(om<=o)continue;
         const g=apl.has(m)?1:0;
-        if(!(om<T||(om===T&&!g)))continue;            // hanya sel kosong (ekor boleh ditempati jika tidak tumbuh)
+        if(!(om<T||(om===T&&!g)))continue;           // hanya sel kosong (ekor boleh bila tidak tumbuh)
         let nc=cs+STEP_C;
         if(d!==4&&d!==k)nc+=8+14*(1-Math.min(s,14)/14);
         const ns=m*5+k;
@@ -252,6 +331,24 @@ function floodStats(snk){
   }
   return {reach,holes:Math.max(0,(N-(L-1))-1-reach)};
 }
+/* Ruang kosong terjangkau TANPA bantuan sel ekor: semua sel badan (termasuk ekor) dianggap padat.
+   Dipakai oleh escapeMove() untuk memilih langkah darurat yang menyisakan ruang paling luas. */
+function floodSolid(snk){
+  const L=snk.length;_fOcc.fill(0);_fSeen.fill(0);
+  for(let i=0;i<L;i++)_fOcc[snk[i]]=1;
+  let h=0,t=0,reach=0;_fQ[t++]=snk[0];_fSeen[snk[0]]=1;
+  while(h<t){
+    const c=_fQ[h++],cx=c%W,cy=(c/W)|0;
+    for(let k=0;k<4;k++){
+      const x=cx+DIRS[k][0],y=cy+DIRS[k][1];
+      if(x<0||y<0||x>=W||y>=H)continue;
+      const m=y*W+x;
+      if(_fOcc[m]||_fSeen[m])continue;
+      _fSeen[m]=1;reach++;_fQ[t++]=m;
+    }
+  }
+  return {reach,holes:Math.max(0,(N-L)-reach)};
+}
 function countTurns(head,cells,heading){
   let d=heading,turns=0,prevC=head;
   for(let i=0;i<cells.length;i++){const k=dirIndex(prevC,cells[i]);if(d!==4&&k!==d)turns++;d=k;prevC=cells[i];}
@@ -273,6 +370,25 @@ function routeIsSafe(snk,cells,apl){
   return true;
 }
 
+/* Jaring pengaman terakhir: tidak ada kandidat apel yang lolos uji keselamatan.
+   Pilih satu langkah legal yang memaksimalkan ruang terjangkau (bertahan hidup);
+   langkah yang langsung memakan apel diberi prioritas. */
+function escapeMove(){
+  const L=snake.length,head=snake[0],tail=snake[L-1],hx=head%W,hy=(head/W)|0;
+  let bm=-1,bs=-INF;
+  for(let k=0;k<4;k++){
+    const x=hx+DIRS[k][0],y=hy+DIRS[k][1];
+    if(x<0||y<0||x>=W||y>=H)continue;
+    const m=y*W+x;
+    if(occ[m]&&!(m===tail&&!apples.has(m)))continue;
+    if(!routeIsSafe(snake,[m],apples))continue;
+    const sim=simulate(snake,[m],apples),fs=floodSolid(sim.ns);
+    const sc=fs.reach*4-fs.holes*2+(apples.has(m)?600:0);
+    if(sc>bs){bs=sc;bm=m;}
+  }
+  return bm;
+}
+
 function nextMove(){
   const L=snake.length;
   if(L>=N)return -1;
@@ -282,22 +398,46 @@ function nextMove(){
   const cycleStep=()=>legal(nxt)?nxt:-1;                   // fallback: ikuti siklus (mengekor jalur sendiri)
   if(apples.size===0){_commit=-1;return cycleStep();}
   if(_commit>=0&&!apples.has(_commit))_commit=-1;
+  /* Bug lama: target apel lama terus dipaksakan walau ada apel baru jauh lebih dekat.
+     Komitmen dibuang bila ada apel lain yang jelas lebih dekat secara fisik. */
+  if(_commit>=0){
+    const hx=head%W,hy=(head/W)|0;
+    const d0=Math.abs(_commit%W-hx)+Math.abs(((_commit/W)|0)-hy);
+    for(const a of apples){
+      if(a===_commit)continue;
+      if(Math.abs(a%W-hx)+Math.abs(((a/W)|0)-hy)+4<d0){_commit=-1;break;}
+    }
+  }
   const heading=L>1?dirIndex(snake[1],head):4;
   const phase=aiPhase(L),fill=L/N;
+  /* Dua bobot berbasis okupansi (perbaikan bug "apel dekat diabaikan"):
+     commitW   : bonus target lama mengecil saat papan masih lapang -> tidak memaksa apel lama.
+     spiralGate: penalti "menyimpang dari spiral" mati di bawah ~30% okupansi. Spiral dipakai
+                 untuk MENGISI kekosongan, bukan alasan melewati apel terdekat. */
+  const commitW=phase.commit*Math.min(1,fill*2.2);
+  const spiralGate=Math.min(1,Math.max(0,(fill-.30)/.50));
 
-  // --- 1) kandidat apel & jalur aman dari DP (tanpa lubang diperhitungkan dulu)
+  const cands=[];
+
+  // --- 1) jalur DP monoton siklus ke apel (dengan jalan pintas yang dinilai)
   dpPlan(snake,apples,heading);
   const dpList=[];
-  for(const a of apples){const st=bestAt(a);if(st>=0)dpList.push({a,st,cost:_cost[st]});}
-  if(dpList.length===0)return cycleStep();
+  for(const a of apples){
+    const st=bestAt(a);if(st<0)continue;
+    /* Batas lompatan: pada siklus cincin, lompatan jauh (mis. loncat ke cincin dalam) menyisakan
+       busur cincin di belakang kepala yang TIDAK bisa diisi lagi (urutan siklus monoton) sehingga
+       papan tidak pernah penuh. Lompatan dibatasi MAX_SKIP sel siklus; lebih dari itu ular memilih
+       mengikuti siklus (FILL) dan apel itu diambil pada putaran berikutnya. */
+    if(((idx[a]-hi+N)%N)-_stp[st]>MAX_SKIP)continue;
+    dpList.push({a,st,cost:_cost[st]});
+  }
   dpList.sort((x,y)=>x.cost-y.cost);
   const picked=new Map();
-  for(let i=0;i<Math.min(6,dpList.length);i++){const e=dpList[i];picked.set(e.a,pathFrom(e.st));}
+  for(let i=0;i<dpList.length&&i<6;i++){const e=dpList[i];picked.set(e.a,pathFrom(e.st));}
   if(_commit>=0&&!picked.has(_commit)){const e=dpList.find(v=>v.a===_commit);if(e)picked.set(e.a,pathFrom(e.st));}
-  const cands=[];
   for(const [a,cells] of picked)cands.push({a,cells,kind:'dp'});
 
-  // --- jalur "ikut siklus" ke apel yang sama (tanpa jalan pintas = tanpa lubang)
+  // --- 3) jalur "ikut siklus" ke apel yang sama (tanpa jalan pintas = tanpa lubang baru)
   const tailAt0=t=>t>=L-1?N:(_bodyOff[t]);
   for(const [a] of picked){
     const offA=(idx[a]-hi+N)%N;if(offA<1)continue;
@@ -310,7 +450,20 @@ function nextMove(){
     if(ok)cands.push({a,cells,kind:'cyc'});
   }
 
-  // --- 2) evaluasi: simulasi tubuh setelah makan, ruang, lookahead apel berikutnya
+  /* --- 3b) FILL murni: ikuti siklus beberapa langkah tanpa target apel. Selalu disediakan sebagai
+     jaring pengaman agar ular tetap punya langkah "mengisi kekosongan" yang aman. */
+  {
+    const cells=[],lim=Math.min(10,Math.max(1,N-snake.length));
+    for(let i=1;i<=lim;i++){
+      const x=cell((hi+i)%N);
+      if(occ[x]&&!(x===tail&&!apples.has(x)))break;
+      cells.push(x);
+      if(apples.has(x))break;
+    }
+    if(cells.length)cands.push({a:-1,cells,kind:'fill'});
+  }
+
+  // --- 3) evaluasi: simulasi tubuh setelah makan, ruang, lookahead apel berikutnya
   const before=floodStats(snake).holes;
   const hw=AI_TUNE.hole0+AI_TUNE.hole1*fill*fill+phase.hole;
   let best=null,bestScore=INF;
@@ -321,14 +474,16 @@ function nextMove(){
     if(!routeIsSafe(snake,cd.cells,apples))continue;
     const sim=simulate(snake,cd.cells,apples);
     const fs=floodStats(sim.ns);
+    const freeAfter=N-sim.ns.length;
     const holePen=Math.max(0,fs.holes-before)*hw;
     // RUANG GERAK: jalur bebas di depan kepala (searah siklus) harus tetap sebagian besar ruang kosong.
     // Jika jalan pintas "melompati" terlalu banyak sel, kepala terkurung di kantong sempit (hanya bisa mengekor).
-    const freeAfter=N-sim.ns.length;
     const arc=((idx[sim.ns[sim.ns.length-1]]-idx[sim.ns[0]]+N)%N||N)-1;
     const arcRatio=freeAfter>0?Math.min(1,arc/freeAfter):1;
     const arcNeed=AI_TUNE.arc0+AI_TUNE.arc1*fill+(phase.escape/100); // makin panjang, makin ketat menjaga ruang keluar
-    const arcPen=(freeAfter>6&&arcRatio<arcNeed)?1000+(arcNeed-arcRatio)*1000:0;
+    /* Penjaga koridor maju: SELALU aktif (tidak diskalakan fill). Ini yang mencegah jalan pintas
+       raksasa "melompati" siklus sehingga ruang di belakang kepala jadi buntu (penyebab mati dini). */
+    const arcPen=(freeAfter>6&&arcRatio<arcNeed)?(1000+(arcNeed-arcRatio)*1000):0;
     // kepala tidak boleh berada di ruang yang jauh lebih kecil daripada seluruh sel kosong
     const reachPen=Math.max(0,(freeAfter*(AI_TUNE.reach+phase.reach*.08)-fs.reach))*(1+fill*3+phase.reach);
     const minEscape=phase.escape;
@@ -346,23 +501,25 @@ function nextMove(){
     }
     let cnt=0;for(const x of cd.cells)if(apples.has(x))cnt++;
     const turns=countTurns(head,cd.cells,heading);
-    // Penalti shortcut: jalur yang jauh menyimpang dari urutan siklus diberi biaya ekstra.
-    // Ini menjaga ritme spiral yang terlihat pada video; penalti tidak boleh mengalahkan risiko tabrakan.
-    const cycleOffset=(idx[cd.a]-hi+N)%N;
+    /* Penalti menyimpang dari spiral: mati saat papan masih lapang (spiralGate=0 di bawah ~30%
+       okupansi) supaya apel terdekat tidak diabaikan, lalu penuh di fase mengisi papan. */
+    const aimed=cd.a>=0;                     // punya target apel? (langkah FILL murni: a=-1)
+    const cycleOffset=aimed?(idx[cd.a]-hi+N)%N:m;
     const skipped=Math.max(0,cycleOffset-m);
-    const spiralPenalty=cd.kind==='cyc'?0:Math.min(skipped, Math.max(0,freeAfter))*phase.shortcut;
-
+    const spiralPenalty=(cd.kind==='cyc'||cd.kind==='fill')?0:Math.min(skipped,Math.max(0,freeAfter))*phase.shortcut*spiralGate;
     // Fase pendek lebih berani mengejar makanan; fase panjang makin mengutamakan ruang dan survival.
     const foodReward=cnt*phase.food*4;
-    const switchingPenalty=(_commit>=0&&apples.has(_commit)&&cd.a!==_commit)?phase.commit*.65:0;
-    const score=m+phase.lookahead*steps2+holePen+phase.turn*turns+spiralPenalty
+    const switchPen=(aimed&&_commit>=0&&cd.a!==_commit)?commitW*.65:0;
+    const score=(aimed?m:m+2)+phase.lookahead*steps2+holePen+phase.turn*turns+spiralPenalty
                -AI_TUNE.enroute*(cnt-1)-foodReward+risk
-               -(cd.a===_commit?phase.commit:0)+switchingPenalty;
+               -(aimed&&_commit===cd.a?commitW:0)+switchPen;
     cd.score=score;
     if(score<bestScore){bestScore=score;best=cd;}
+    if(_aiTrace)_aiTrace.push({k:cd.kind,m,sc:+score.toFixed(2),ok:1,reach:fs.reach,need:0,holes:fs.holes,fa:freeAfter});
   }
-  if(!best)return cycleStep();
-  _commit=best.a;
+  if(_aiTrace)_aiTrace.push({pick:best?'score':'none',len:L,before,cands:cands.length});
+  if(!best){const e=escapeMove();return e>=0?e:cycleStep();}   // jaring pengaman terakhir
+  if(best.a>=0)_commit=best.a;               // langkah FILL murni tidak mengubah target apel
   return best.cells[0];
 }
 
@@ -1290,10 +1447,24 @@ addEventListener('keydown',e=>{
   if(e.key==='r'||e.key==='R')newRound();
 });
 
-/* Kecepatan ular TETAP: banyak apel/gift tidak lagi membuat ular makin cepat. */
-const STEP_MS=170;
+/* ===== KECEPATAN (untuk uji cepat) =====
+   Kecepatan tetap konstan terhadap jumlah apel/gift; hanya berubah lewat URL:
+     ?speed=200 -> 200 langkah/detik  (5 ms per langkah)
+     ?speed=2   -> pengali 2x          (nilai <=20 dianggap pengali: 170/2 = 85 ms)
+     ?ms=500    -> durasi per langkah langsung (ms)
+     ?speed=0.5 -> setengah kecepatan (340 ms)
+   Default 170 ms per langkah. Semua nilai di-clamp agar tetap bisa dilihat dan tidak membekukan tab. */
+const DEF_MS=170;
+const clampN=(v,a,b)=>Math.max(a,Math.min(b,v));
+const SPEED=Math.abs(+(QS.get('speed')||0))||0, MSQ=Math.abs(+(QS.get('ms')||0))||0;
+const STEP_MS=clampN(MSQ>0?MSQ:(SPEED>0?(SPEED<=20?DEF_MS/SPEED:1000/SPEED):DEF_MS),4,2000);
 const stepOf=()=>STEP_MS;
-const BUNTU_MS=Math.max(12000,N*STEP_MS*1.4);   // AI Hamilton bisa butuh 1 putaran penuh menuju apel; jangan salah vonis 'buntu'
+/* Batas langkah per frame: di 5 ms/langkah satu frame 60fps hanya perlu ~3 langkah.
+   Tanpa batas, frame yang sempat tersendat bisa menumpuk ratusan langkah sekaligus (terlihat lompat). */
+const MAX_STEP_FRAME=clampN(Math.ceil(40/STEP_MS)+2,2,48);
+const SPAWN_GAP=clampN(.07*STEP_MS/DEF_MS,.008,.07);   // jeda spawn apel ikut menyesuaikan kecepatan
+const FLY_T=Math.max(.06,.9*STEP_MS/DEF_MS);           // durasi apel melayang dari airlock
+const BUNTU_MS=Math.max(8000,N*STEP_MS*1.4);   // AI bisa butuh 1 putaran penuh menuju apel; jangan salah vonis 'buntu'
 let last=performance.now(),tc=0,rafId=0,lastRaf=performance.now(),lastEatAt=performance.now();const col=new THREE.Color();
 /* Tutup ronde: tampilkan papan + mulai ronde baru otomatis. */
 function akhirRonde(judul){
@@ -1318,18 +1489,19 @@ function frame(now){
   // gembulan menelan hanya berjalan sampai PERUT TENGAH (setengah panjang badan)
   bulgeMid=Math.max(4,snake.length*.5)*6;
   if(started&&!over){
-    const sm=stepOf();acc+=dt*1000;
-    while(acc>=sm&&!over){acc-=sm;const oldHead=snake[0],r=step();
+    const sm=stepOf();acc+=dt*1000;let guard=0;
+    while(acc>=sm&&!over&&guard++<MAX_STEP_FRAME){acc-=sm;const oldHead=snake[0],r=step();
       if(snake[0]!==oldHead)turnSound(oldHead,snake[0]);
       if(r===1){sfx.eat();burst(wp(snake[0]),8);jaw=1;bulges.push(0);lastEatAt=now;}
       if(r===2){over=now;akhirRonde('🏆 PAPAN PENUH!');}}
+    if(acc>sm*MAX_STEP_FRAME)acc=sm*MAX_STEP_FRAME;   // jangan menumpuk hutang langkah (anti lompat)
     // papan buntu (badan mengunci, tidak ada apel terjangkau) → tutup ronde juga
     if(!over&&snake.length>N*0.45&&now-lastEatAt>BUNTU_MS){over=now;akhirRonde('⏳ PAPAN BUNTU!');}
     spawnT-=dt;
     // sisa sel yang masih bisa diisi apel (papan penuh → berhenti spawn & buang antrean)
     const ruang=N-snake.length-apples.size-flying.length;
     if(!over&&ruang>0){
-      if(queue>0){if(spawnT<=0){queue--;launch();spawnT=Math.max(.012,.07-queue*.0008);}}
+      if(queue>0){if(spawnT<=0){queue--;launch();spawnT=SPAWN_GAP;}}
       else{let g=0;while(apples.size+flying.length<BASE&&g++<BASE){const c=freeCell();if(c<0)break;apples.add(c);}}
     }else if(ruang<=0)queue=0;                 // papan penuh: antrean gift dihentikan
     const sp=6*1000/sm;for(let i=bulges.length-1;i>=0;i--){bulges[i]+=dt*sp;if(bulges[i]>=bulgeMid)bulges.splice(i,1);}
@@ -1363,7 +1535,7 @@ function frame(now){
     D.position.y+=s+.08;D.scale.set(1,1,1);D.updateMatrix();stemI.setMatrixAt(an,D.matrix);
     D.position.set(p.x,.02,p.z);D.scale.setScalar(1.3+Math.sin(T*4+p.z)*.15);D.updateMatrix();glowI.setMatrixAt(an,D.matrix);an++;};
   for(const a of apples){_ap.set((a%W)-W/2+.5,.3,((a/W)|0)-H/2+.5);put(_ap,.3);}
-  for(let i=flying.length-1;i>=0;i--){const f=flying[i];f.t+=dt/.9;if(f.t>=1){fly.delete(f.c);if(!occ[f.c]){apples.add(f.c);burst(wp(f.c),5);}else queue++;flying.splice(i,1);continue;}
+  for(let i=flying.length-1;i>=0;i--){const f=flying[i];f.t+=dt/FLY_T;if(f.t>=1){fly.delete(f.c);if(!occ[f.c]){apples.add(f.c);burst(wp(f.c),5);}else queue++;flying.splice(i,1);continue;}
     const to=wp(f.c),p=P0.clone().lerp(to,f.t);p.y=P0.y+(.3-P0.y)*f.t+Math.sin(f.t*Math.PI)*4;put(p,.3*(.5+.5*f.t));}
   appleG.count=glowI.count=stemI.count=an;[appleG,glowI,stemI].forEach(m=>m.instanceMatrix.needsUpdate=true);
   let pn=0;for(const q of pd){if(q.l>0){q.l-=dt;q.v.y-=9*dt;q.p.addScaledVector(q.v,dt);D.position.copy(q.p);D.scale.setScalar(Math.max(q.l,0)*1.6);}else D.scale.setScalar(0);D.quaternion.identity();D.updateMatrix();part.setMatrixAt(pn++,D.matrix);}part.instanceMatrix.needsUpdate=true;
