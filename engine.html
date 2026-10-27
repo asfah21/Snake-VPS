@@ -206,8 +206,8 @@ function cycleOk(a){
 }
 cyc.forEach((c,i)=>idx[c]=i);
 const cell=i=>cyc[i];
-let snake,occ,apples,prev,eaten=0,round=1,_commit=-1;   // _commit = apel yang sedang dituju
-function reset(){occ=new Uint8Array(N);apples=new Set();snake=[cell(2),cell(1),cell(0)];snake.forEach(c=>occ[c]=1);prev=snake.slice();eaten=0;_commit=-1;}
+let snake,occ,apples,prev,eaten=0,round=1,_commit=-1,_endReason='';   // _commit = apel yang sedang dituju
+function reset(){occ=new Uint8Array(N);apples=new Set();snake=[cell(2),cell(1),cell(0)];snake.forEach(c=>occ[c]=1);prev=snake.slice();eaten=0;_commit=-1;_endReason='';}
 const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
 const _dist=new Int16Array(N),_first=new Int16Array(N),_q=new Int32Array(N);
 const _parent=new Int32Array(N),_bodyIdx=new Int16Array(N),_vOcc=new Uint8Array(N),_visited=new Uint8Array(N);
@@ -256,8 +256,25 @@ function bfs(start,allow){
       valid - dulu ia ikut bersaing skor dan selalu menang, itulah sebab ular terlihat "spiral"
       padahal apel ada di dekatnya.
 
-   Uji headless (tools/ai-bench.cjs, 16x16, 2 apel aktif, 16 ronde): 16/16 papan penuh, tanpa
-   tabrakan diri; fase awal ~22.7 langkah/apel, keseluruhan ~20.7 langkah/apel. */
+   5) JARING PENGAMAN ANTI-MATI-DINI (perbaikan bug "ular mati / mengurung diri di panjang 50-70"):
+      - apples kosong (apel masih "terbang" dari airlock) TIDAK lagi memakai langkah buta: sel
+        siklus berikutnya dipakai hanya bila lolos routeIsSafe, kalau tidak dipakai langkah darurat.
+      - Semua kandidat dinilai berjenjang: (1) SAFE = ekor masih terjangkau (tailReachable) DAN
+        masih ada jalan keluar (headMoves > 0), (2) ekor terjangkau saja, (3) jalan keluar saja,
+        (4) apa pun. Jadi ular tidak bisa menutup satu-satunya akses ke ekornya sendiri, tetapi
+        AI juga tidak pernah kehilangan langkah hanya karena syarat itu tidak terpenuhi.
+      - escapeMove() memberi bonus mutlak pada langkah yang tidak masuk jalan buntu (headMoves) dan
+        bonus besar pada langkah yang masih menyambung ke ekor.
+      - freeCell() tetap menaruh apel walau semua sel kosong sedang terkurung badan (papan hampir
+        penuh), supaya ronde tidak berhenti sebagai "PAPAN BUNTU" tinggal 5 sel lagi.
+      - Label akhir ronde dibedakan: PAPAN PENUH / TABRAKAN / ULAR TERKURUNG / PAPAN BUNTU.
+      - step() punya guard: sel yang masih ditempati badan (selain ekor) tidak pernah dieksekusi.
+
+   Uji headless: tools/ai-bench.cjs (16x16, 2 apel selalu ada) dan tools/ai-stall.cjs (meniru
+   LATENSI apel browser: apples.size bisa 0 beberapa langkah setelah apel dimakan), plus
+   tools/ai-test.cjs yang punya uji regresi khusus jendela tanpa apel. Hasil acuan: ai-bench
+   16/16 papan penuh tanpa tabrakan diri, ~20.5 langkah/apel; ai-stall 8 ronde x 2 variasi jeda
+   apel tanpa satu pun kematian dini. */
 let _aiTrace=null;                                // hook diagnostik untuk harness uji (null di produksi)
 /* Batas lompatan siklus saat mengejar apel (dalam sel siklus). Default praktis tanpa batas;
    bisa dipersempit lewat ?skip=8 bila ingin ular lebih "disiplin" mengikuti spiral. */
@@ -279,6 +296,12 @@ const HUNT_REACH=Math.max(.2,Math.min(1,QS.has('huntreach')?+QS.get('huntreach')
    rapi dalam beberapa langkah; badan panjang tidak boleh keluar dari urutan siklus.
    Uji headless 16 ronde: 16/16 papan penuh, fase awal 22.7 langkah/apel (vs 33.8 tanpa HUNT). */
 const HUNT_LEN=Math.max(0,QS.has('huntlen')?+QS.get('huntlen'):48);
+/* OPSI EKSPERIMENTAL (?unwind=1): perpanjang fase bebas-arah selama badan masih "kusut" (tidak
+   searah siklus). Terasa lebih lincah di papan lapang, TAPI uji headless menunjukkan papan lalu
+   sulit terisi penuh (0/6 ronde vs 6/6 tanpa opsi ini), karena badan tidak pernah "dirapikan"
+   siklus. Default MATI. Pencegahan mati di panjang 50-70 ditangani oleh kriteria ekor-terjangkau
+   (tailReachable) + langkah tanpa apel yang tervalidasi, bukan oleh opsi ini. */
+const HUNT_UNWIND=QS.get('unwind')==='1';
 const INF=1e9,STEP_C=100,NS=N*5;
 const _cost=new Float64Array(NS),_stp=new Int32Array(NS),_apc=new Int32Array(NS),_par=new Int32Array(NS);
 const _bodyOff=new Int32Array(N+1);
@@ -382,6 +405,46 @@ function floodSolid(snk){
   }
   return {reach,holes:Math.max(0,(N-L)-reach)};
 }
+/* Berapa langkah legal yang tersisa dari kepala (sel ekor TIDAK dihitung sebagai jalan keluar,
+   karena ekor hanya bisa dimasuki pada tick tertentu). Hasil 0 = kepala terkunci total di tick
+   berikutnya, yaitu tanda pasti "masuk jalan buntu". Dipakai sebagai syarat satu langkah ke depan
+   supaya ular tidak berjalan masuk perangkapnya sendiri. */
+function headMoves(snk){
+  const L=snk.length,head=snk[0],tail=snk[L-1],hx=head%W,hy=(head/W)|0;
+  let n=0;
+  for(let k=0;k<4;k++){
+    const x=hx+DIRS[k][0],y=hy+DIRS[k][1];
+    if(x<0||y<0||x>=W||y>=H)continue;
+    const m=y*W+x;
+    if(m===tail)continue;
+    if(snk.indexOf(m)>0)continue;      // sel badan (index 0 = kepala itu sendiri)
+    n++;
+  }
+  return n;
+}
+/* Apakah ekor masih bisa dijangkau dari kepala? Semua sel badan = dinding, sel ekor = bebas.
+   Kriteria klasik anti "mengurung diri": langkah yang memutus akses ke ekor hampir selalu awal
+   kantong maut, walau satu langkah ke depan terlihat aman. */
+function tailReachable(snk){
+  const L=snk.length;if(L<2)return true;
+  const tail=snk[L-1];
+  _fOcc.fill(0);_fSeen.fill(0);
+  for(let i=0;i<L-1;i++)_fOcc[snk[i]]=1;
+  let h=0,t=0;_fQ[t++]=snk[0];_fSeen[snk[0]]=1;
+  while(h<t){
+    const c=_fQ[h++],cx=c%W,cy=(c/W)|0;
+    for(let k=0;k<4;k++){
+      const x=cx+DIRS[k][0],y=cy+DIRS[k][1];
+      if(x<0||y<0||x>=W||y>=H)continue;
+      const m=y*W+x;
+      if(_fSeen[m])continue;
+      if(m===tail)return true;      // ekor belum tentu bebas secara geometris: cukup terjangkau
+      if(_fOcc[m])continue;
+      _fSeen[m]=1;_fQ[t++]=m;
+    }
+  }
+  return false;
+}
 /* Badan monoton siklus? Offset sel badan harus naik tegas dari ekor ke leher. */
 function bodyMonotone(snk){
   const L=snk.length;
@@ -452,7 +515,10 @@ function escapeMove(){
     if(occ[m]&&!(m===tail&&!apples.has(m)))continue;
     if(!routeIsSafe(snake,[m],apples))continue;
     const sim=simulate(snake,[m],apples),fs=floodSolid(sim.ns);
-    const sc=fs.reach*4-fs.holes*2+(apples.has(m)?600:0);
+    /* Langkah darurat pun harus menjaga (a) tidak masuk jalan buntu dan (b) sambungan ke ekor:
+       itulah yang membedakan "kabur" dari "masuk perangkap sendiri" (penyebab ular mati di 50-70).
+       Bonus jalan-buntu sengaja lebih besar dari seluruh rentang skor ruang, jadi bersifat mutlak. */
+    const sc=fs.reach*4-fs.holes*2+(headMoves(sim.ns)>0?4000:0)+(tailReachable(sim.ns)?1200:0)+(apples.has(m)?600:0);
     if(sc>bs){bs=sc;bm=m;}
   }
   return bm;
@@ -465,7 +531,23 @@ function nextMove(){
   const nxt=cell((hi+1)%N);
   const legal=m=>m>=0&&!(occ[m]&&!(m===tail&&!apples.has(m)));
   const cycleStep=()=>legal(nxt)?nxt:-1;                   // fallback: ikuti siklus (mengekor jalur sendiri)
-  if(apples.size===0){_commit=-1;return cycleStep();}
+  /* TANPA APEL (mis. semua apel masih "terbang" dari airlock, jadi belum masuk set apples):
+     dulu di sini langsung `return cycleStep()` TANPA validasi rute. Bila sel siklus berikutnya
+     kebetulan ditempati badan (umum setelah fase bebas-arah membuat badan tidak monoton), hasilnya
+     -1 -> step() balik 2 -> ronde ditutup "PAPAN PENUH" padahal papan baru terisi ~25%.
+     Sekarang langkah siklus tetap dipakai bila aman (badan rapi), kalau tidak dipilih langkah
+     legal yang menyisakan ruang paling luas. */
+  if(apples.size===0){
+    _commit=-1;
+    if(legal(nxt)&&routeIsSafe(snake,[nxt],apples)){
+      const sim=simulate(snake,[nxt],apples);
+      /* Ikuti siklus HANYA bila tidak mengunci kepala dan tidak memutus akses ke ekor.
+         Tanpa dua syarat ini, jendela "tanpa apel" yang berulang cukup untuk mengurung ular. */
+      if(headMoves(sim.ns)>0&&(sim.ns.length>=N-2||tailReachable(sim.ns)))return nxt;
+    }
+    const e=escapeMove();
+    return e>=0?e:-1;
+  }
   if(_commit>=0&&!apples.has(_commit))_commit=-1;
   /* Bug lama: target apel lama terus dipaksakan walau ada apel baru jauh lebih dekat.
      Komitmen dibuang bila ada apel lain yang jelas lebih dekat secara fisik. */
@@ -490,9 +572,12 @@ function nextMove(){
 
   const cands=[];
 
+  const mono=bodyMonotone(snake);            // badan masih searah siklus?
   /* --- 0) BEBAS-ARAH (HUNT): hanya di fase papan lapang. Jalur BFS terpendek ke apel terdekat,
-     boleh "mundur" dari urutan siklus, sehingga apel di dekat kepala tidak diabaikan. */
-  if(HUNT_LEN>0&&L<=HUNT_LEN&&fill<HUNT_FILL){
+     boleh "mundur" dari urutan siklus, sehingga apel di dekat kepala tidak diabaikan.
+     Handover LUNAK: izinkan terus selama badan masih belum searah siklus (HUNT_UNWIND), supaya
+     tidak ada patahan keras di L=HUNT_LEN yang membuat ular terkunci. */
+  if(HUNT_LEN>0&&fill<HUNT_FILL&&(L<=HUNT_LEN||(HUNT_UNWIND&&!mono))){
     bfsFrom();
     const near=[];
     for(const a of apples)if(_dist[a]>=0)near.push({a,d:_dist[a]});
@@ -504,7 +589,6 @@ function nextMove(){
   }
 
   // --- 1) jalur DP monoton siklus ke apel (dengan jalan pintas yang dinilai)
-  const mono=bodyMonotone(snake);            // badan masih searah siklus?
   dpPlan(snake,apples,heading,!mono);
   const dpList=[];
   for(const a of apples){
@@ -554,8 +638,12 @@ function nextMove(){
   // --- 3) evaluasi: simulasi tubuh setelah makan, ruang, lookahead apel berikutnya
   const before=floodStats(snake).holes;
   const hw=AI_TUNE.hole0+AI_TUNE.hole1*fill*fill+phase.hole;
-  let best=null,bestScore=INF;              // kandidat menuju apel (prioritas utama)
-  let bestFill=null,bestFillScore=INF;      // kandidat FILL (hanya bila tidak ada apel valid)
+  let best=null,bestScore=INF;              // tier 1: kandidat apel "safe" (ekor + ada jalan keluar)
+  let bestFill=null,bestFillScore=INF;      // tier 1 versi FILL (bila tak ada apel valid)
+  let bestTail=null,bestTailScore=INF;      // tier 2: ekor terjangkau, ujung bisa buntu
+  let bestMoves=null,bestMovesScore=INF;    // tier 3: ada jalan keluar, akses ekor terputus
+  let bestAny=null,bestAnyScore=INF;        // tier 4: kandidat apel apa pun
+  let bestFillAny=null,bestFillAnyScore=INF; // tier 4 versi FILL
   for(const cd of cands){
     const m=cd.cells.length;if(m<1)continue;
     if(!legal(cd.cells[0])||dirIndex(head,cd.cells[0])===4)continue;
@@ -614,29 +702,65 @@ function nextMove(){
     const score=(aimed?m:m+2)+phase.lookahead*steps2+holePen+phase.turn*turns+spiralPenalty
                -AI_TUNE.enroute*(cnt-1)-foodReward+risk
                -(aimed&&_commit===cd.a?commitW:0)+switchPen;
-    cd.score=score;
-    if(cd.a<0){if(score<bestFillScore){bestFillScore=score;bestFill=cd;}}
-    else if(score<bestScore){bestScore=score;best=cd;}
-    if(_aiTrace)_aiTrace.push({k:cd.kind,m,sc:+score.toFixed(2),ok:1,reach:fs.reach,need:0,holes:fs.holes,fa:freeAfter});
+    /* Syarat struktural (kecuali papan hampir penuh): ekor harus masih terjangkau setelah
+       langkah/rencana dijalankan. Ini yang mencegah "mengurung diri" - dulu skor ruang saja
+       tidak cukup, karena langkah dengan ruang luas pun bisa menutup satu-satunya akses ke ekor. */
+    const boardFullish=sim.ns.length>=N-2;
+    const tailOk=boardFullish||tailReachable(sim.ns);
+    const hasExit=boardFullish||headMoves(sim.ns)>0;
+    /* Penilaian berjenjang supaya kompromi terakhir tidak langsung memilih langkah buntu:
+       tier 1 "safe"    = ekor terjangkau DAN masih ada jalan keluar (paling diinginkan)
+       tier 2 "tail"    = ekor terjangkau, walau ujungnya buntu
+       tier 3 "exit"    = ada jalan keluar, walau akses ekor terputus
+       tier 4 "any"     = apa pun (jaminan supaya AI tidak pernah kehilangan langkah) */
+    const safe=tailOk&&hasExit;
+    cd.score=score;cd.tailOk=safe;
+    if(cd.a<0){
+      if(safe&&score<bestFillScore){bestFillScore=score;bestFill=cd;}
+      if(score<bestFillAnyScore){bestFillAnyScore=score;bestFillAny=cd;}
+    }else{
+      if(safe&&score<bestScore){bestScore=score;best=cd;}
+      if(tailOk&&score<bestTailScore){bestTailScore=score;bestTail=cd;}
+      if(hasExit&&score<bestMovesScore){bestMovesScore=score;bestMoves=cd;}
+      if(score<bestAnyScore){bestAnyScore=score;bestAny=cd;}
+    }
+    if(_aiTrace)_aiTrace.push({k:cd.kind,m,sc:+score.toFixed(2),ok:1,tail:tailOk?1:0,reach:fs.reach,need:0,holes:fs.holes,fa:freeAfter});
   }
-  if(_aiTrace)_aiTrace.push({pick:best?'score':bestFill?'fill':'none',len:L,before,cands:cands.length});
-  if(!best)best=bestFill;                    // tidak ada jalur apel valid -> isi kekosongan
-  if(!best){const e=escapeMove();return e>=0?e:cycleStep();}   // jaring pengaman terakhir
+  const pickName=best?(best.a<0?'fill':'score'):'none';
+  if(_aiTrace)_aiTrace.push({pick:pickName,len:L,before,cands:cands.length,tailSafe:best?!!best.tailOk:false});
+  if(!best)best=bestFill;                    // tidak ada jalur apel aman -> isi kekosongan
+  if(!best)best=bestTail;                    // kompromi 2: tetap jaga akses ke ekor
+  if(!best)best=bestFillAny;                 // kompromi 3: isi kekosongan apa pun
+  if(!best)best=bestMoves||bestAny;          // kompromi 4: setidaknya masih punya jalan keluar
+  if(!best){                                 // benar-benar tidak ada kandidat -> jaring pengaman
+    if(_aiTrace)_aiTrace.push({fail:'no-candidate',len:L});
+    const e=escapeMove();
+    if(e<0&&_aiTrace)_aiTrace.push({fail:'caged',len:L,head:snake[0]});
+    return e>=0?e:cycleStep();
+  }
   if(best.a>=0)_commit=best.a;               // langkah FILL murni tidak mengubah target apel
   return best.cells[0];
 }
 
 function step(){
   const n=nextMove();
-  if(n<0)return 2; // papan penuh / buntu -> ronde baru
+  if(n<0){_endReason='stuck';return 2;} // tidak ada langkah legal -> ular terkurung (bukan papan penuh)
   const t=snake[snake.length-1];
+  /* Guard defensif: sel yang masih ditempati badan (selain ekor) tidak boleh dieksekusi.
+     Tanpa ini satu bug logika cukup untuk membuat `occ` dan array snake tidak sinkron permanen. */
+  if(occ[n]&&n!==t){
+    _endReason='collision';
+    if(_aiTrace)_aiTrace.push({fail:'collision',len:snake.length,head:snake[0],cell:n});
+    return 2;
+  }
   prev=snake.slice();
   const grow=apples.has(n);
   snake.unshift(n);
   if(grow){apples.delete(n);eaten++;prev.push(t);}
   else{snake.pop();occ[t]=0;}
   occ[n]=1;
-  return snake.length>=N?2:(grow?1:0);
+  if(snake.length>=N){_endReason='full';return 2;}
+  return grow?1:0;
 }
 //LOGIC_END
 
@@ -1481,12 +1605,21 @@ function showBig(icon,name,n,who){
   _bigT=setTimeout(()=>{b.style.display='none';},1700);
 }
 $('n').textContent=N;reset();applyTheme(round);
-/* Hanya pilih sel kosong yang masih bisa DICAPAI kepala (supaya apel tidak muncul
-   di kantong tertutup badan sendiri lalu membuat game macet). */
+/* Pilih sel kosong yang masih bisa DICAPAI kepala (supaya apel tidak muncul di kantong tertutup
+   badan sendiri lalu membuat game macet). Kalau TIDAK ADA satu pun sel terjangkau - keadaan normal
+   saat papan hampir penuh, sisa sel terkurung badan sendiri - jangan berhenti menaruh apel: pakai
+   sel kosong mana pun. Badan ular terus bergerak sehingga kantong itu terbuka lagi beberapa langkah
+   kemudian. Dulu freeCell() balik -1 di sini -> apel berhenti muncul -> ular berputar-putar sampai
+   ronde ditutup "PAPAN BUNTU" padahal papan tinggal 5 sel lagi. */
 function freeCell(){
-  const f=[];bfs(snake[0],snake[snake.length-1]);
-  for(let c=0;c<N;c++)if(!occ[c]&&!apples.has(c)&&!fly.has(c)&&_dist[c]>=0)f.push(c);
-  return f.length?f[(Math.random()*f.length)|0]:-1;
+  const f=[],any=[];bfs(snake[0],snake[snake.length-1]);
+  for(let c=0;c<N;c++){
+    if(occ[c]||apples.has(c)||fly.has(c))continue;
+    any.push(c);
+    if(_dist[c]>=0)f.push(c);
+  }
+  if(f.length)return f[(Math.random()*f.length)|0];
+  return any.length?any[(Math.random()*any.length)|0]:-1;
 }
 function launch(){const c=freeCell();if(c<0){queue=0;return;}flying.push({c,t:0});fly.add(c);}
 function gift(user,name,n,icon='🎁'){
@@ -1596,10 +1729,13 @@ function frame(now){
     while(acc>=sm&&!over&&guard++<MAX_STEP_FRAME){acc-=sm;const oldHead=snake[0],r=step();
       if(snake[0]!==oldHead)turnSound(oldHead,snake[0]);
       if(r===1){sfx.eat();burst(wp(snake[0]),8);jaw=1;bulges.push(0);lastEatAt=now;}
-      if(r===2){over=now;akhirRonde('🏆 PAPAN PENUH!');}}
+      if(r===2){over=now;akhirRonde(snake.length>=N?'🏆 PAPAN PENUH!':(_endReason==='collision'?'💥 TABRAKAN!':'⛔ ULAR TERKURUNG!'));}}
     if(acc>sm*MAX_STEP_FRAME)acc=sm*MAX_STEP_FRAME;   // jangan menumpuk hutang langkah (anti lompat)
     // papan buntu (badan mengunci, tidak ada apel terjangkau) → tutup ronde juga
-    if(!over&&snake.length>N*0.45&&now-lastEatAt>BUNTU_MS){over=now;akhirRonde('⏳ PAPAN BUNTU!');}
+    /* Deteksi macet TIDAK lagi bergantung pada panjang badan: dulu syarat `snake.length>N*0.45`
+       membuat ular yang benar-benar terkunci di panjang 50-70 tidak pernah terdeteksi, sehingga
+       ronde hanya berakhir lewat jalan lain dengan label yang salah. */
+    if(!over&&now-lastEatAt>BUNTU_MS){over=now;akhirRonde('⏳ PAPAN BUNTU!');}
     spawnT-=dt;
     // sisa sel yang masih bisa diisi apel (papan penuh → berhenti spawn & buang antrean)
     const ruang=N-snake.length-apples.size-flying.length;

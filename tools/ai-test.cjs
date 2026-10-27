@@ -19,9 +19,9 @@ if (a < 0 || b < 0) throw new Error('marker LOGIC tidak ditemukan');
 const code = src.slice(a + '//LOGIC_START'.length, b);
 const fly = new Set();
 const api = new Function('QS', 'document', 'console', 'fly', code + `
-  return { W,H,N,cyc,cycleOk,step,reset,
+  return { W,H,N,cyc,cycleOk,step,reset,nextMove,
     get snake(){return snake}, get apples(){return apples}, get occ(){return occ},
-    get eaten(){return eaten} };
+    get eaten(){return eaten}, get endReason(){return _endReason} };
 `)(new URLSearchParams(''), { body: { classList: { add() {} } } }, { warn() {}, log() {} }, fly);
 
 ok(api.cyc.length === api.N, 'siklus berisi ' + api.cyc.length + '/' + api.N + ' sel');
@@ -74,6 +74,33 @@ for (let r = 0; r < ROUNDS; r++) {
 ok(collisions === 0, 'tidak pernah menabrak badan sendiri dalam ' + ROUNDS + ' ronde');
 ok(wins === ROUNDS, 'papan terisi penuh ' + wins + '/' + ROUNDS + ' ronde (buntu: ' + deaths + ')');
 console.log('  total apel dimakan:', eats, '| rata-rata langkah/apel:', (160000 / Math.max(1, eats)).toFixed(1), '(kasar)');
+
+/* ---------- 2b. jendela TANPA APEL (apel masih "terbang" di browser) ----------
+   Regresi bug "ular mati / mengurung diri di panjang 50-70": dulu saat apples.size === 0
+   nextMove() mengikuti siklus TANPA validasi rute, jadi bila sel siklus berikutnya ditempati
+   badan sendiri hasilnya -1 -> ronde ditutup "PAPAN PENUH" padahal papan baru terisi ~25%.
+   Harness ai-bench/ai-test biasa tidak pernah membuat jendela ini (selalu 2 apel). */
+{
+  const ROUNDS_NP = 3, TICKS = 3000;
+  let bad = 0; const why = [];
+  for (let r = 0; r < ROUNDS_NP; r++) {
+    api.reset(); api.apples.clear(); fly.clear();
+    for (let t = 0; t < TICKS; t++) {
+      const phase = t % 9;
+      if (phase === 0) api.apples.clear();                       // apel dimakan / hilang
+      if (phase === 5 && api.apples.size === 0) {                 // baru mendarat lagi
+        const c = pickFreeCell(); if (c >= 0) api.apples.add(c);
+      }
+      const res = api.step();
+      if (new Set(api.snake).size !== api.snake.length) { bad++; why.push('badan dobel'); break; }
+      if (res === 2) {
+        if (api.snake.length < api.N) { bad++; why.push('len ' + api.snake.length + ' reason ' + api.endReason); }
+        break;
+      }
+    }
+  }
+  ok(bad === 0, 'jendela tanpa apel tidak mengakhiri ronde dini' + (why.length ? ' (gagal: ' + why.join(' | ') + ')' : ' (' + ROUNDS_NP + ' ronde x ' + TICKS + ' langkah)'));
+}
 
 /* ---------- 3. parser kecepatan ---------- */
 const sp = src.match(/const DEF_MS=170;[\s\S]*?const BUNTU_MS=[^;]+;/);
